@@ -1,0 +1,18 @@
+# --- GUI ---
+customtkinter
+
+# --- Data & Geospasial ---
+pandas
+openpyxl
+geopandas
+shapely
+pyogrio
+fiona
+
+# --- Web Scraping ---
+playwright
+selenium
+webdriver-manager
+
+# --- Build Tools ---
+pyinstaller

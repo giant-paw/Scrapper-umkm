@@ -1,0 +1,35 @@
+# ==========================================
+# FILE & FOLDER YANG DIABAIKAN OLEH GITHUB
+# ==========================================
+
+# 1. Python Virtual Environment (Sangat Besar)
+env/
+venv/
+.env
+
+# 2. File Cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 3. Output Build PyInstaller (Sangat Besar)
+build/
+dist/
+*.spec
+browser_bin/
+
+# 4. File Output Aplikasi & Data Rahasia/Sampah
+data/
+*.xlsx
+*.csv
+
+# 5. File Debugging & Log
+debug_log.txt
+debug_*.png
+*.log
+
+# 6. Konfigurasi Editor/OS (VS Code, Windows)
+.vscode/
+.DS_Store
+Thumbs.db
