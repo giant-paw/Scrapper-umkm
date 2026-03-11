@@ -3,6 +3,7 @@ import re
 import urllib.parse
 from difflib import SequenceMatcher
 import pandas as pd
+import requests
 
 # Tambahan untuk geospasial yang jauh lebih cepat
 import geopandas as gpd
@@ -17,7 +18,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 # ================= CONFIG =================
-GEOJSON_FILE = "bantul.geojson"
+GEOJSON_FILE = "bantul.geojson"  # Pastikan nama file geojson sudah benar
 CTX = "Bantul"
 OUTPUT_PREFIX = "tokopedia"
 
@@ -38,13 +39,54 @@ def name_similarity(a: str, b: str) -> float:
     if not a or not b: return 0.0
     return round(SequenceMatcher(None, a, b).ratio(), 4)
 
+def classify_match(similarity: float) -> str:
+    if similarity >= 0.85: return "TINGGI"
+    if similarity >= 0.65: return "SEDANG"
+    if similarity >= 0.45: return "RENDAH"
+    return "SANGAT_RENDAH"
+
+# ================= MAPS EXTRACTOR HELPERS =================
+def extract_phone(driver) -> str:
+    try:
+        el = driver.find_element(By.CSS_SELECTOR, 'button[data-item-id^="phone"]')
+        return el.text
+    except Exception:
+        return ""
+
+def extract_website(driver) -> str:
+    try:
+        el = driver.find_element(By.CSS_SELECTOR, 'a[data-item-id="authority"]')
+        return el.get_attribute("href")
+    except Exception:
+        return ""
+
+def extract_maps_place_name(driver) -> str:
+    selectors = ["h1", 'h1[class]', 'div[role="main"] h1']
+    for sel in selectors:
+        try:
+            el = driver.find_element(By.CSS_SELECTOR, sel)
+            text = el.text.strip()
+            if text: return text
+        except Exception:
+            pass
+    return ""
+
+def extract_email(url: str) -> str:
+    if not url: return ""
+    try:
+        r = requests.get(url, timeout=8)
+        emails = re.findall(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[A-Za-z]{2,}", r.text)
+        if emails: return emails[0]
+    except Exception:
+        pass
+    return ""
 
 # ================= MAIN SCRAPER CLASS =================
 class TokopediaGeoScraper:
     def __init__(self, callback=None, stop_check=None):
         self.log_callback = callback
         self.stop_check = stop_check
-        self.gdf_peta = self._load_geojson_fast() # Gunakan GeoPandas
+        self.gdf_peta = self._load_geojson_fast()
 
     def log(self, *args):
         msg = " ".join(map(str, args))
@@ -56,7 +98,6 @@ class TokopediaGeoScraper:
         return self.stop_check() if self.stop_check else False
 
     def _load_geojson_fast(self):
-        """OPTIMASI 1: Memuat peta menggunakan GeoPandas (Jauh lebih cepat)"""
         try:
             return gpd.read_file(GEOJSON_FILE)
         except Exception as e:
@@ -64,12 +105,10 @@ class TokopediaGeoScraper:
             return None
 
     def find_geojson_match(self, lat: float, lng: float) -> dict | None:
-        """OPTIMASI 1: Pencocokan spasial dalam 1 baris kode, tanpa manual ray-casting"""
         if lat is None or lng is None or self.gdf_peta is None: 
             return None
         
         titik = Point(lng, lat)
-        # Cari baris (poligon) mana yang mengandung titik koordinat tersebut
         match = self.gdf_peta[self.gdf_peta.geometry.contains(titik)]
         
         if not match.empty:
@@ -85,7 +124,6 @@ class TokopediaGeoScraper:
 
     def safe_click(self, locator) -> bool:
         try:
-            # Gunakan state "visible" agar tidak menembak elemen yang belum siap
             locator.wait_for(state="visible", timeout=8000)
             locator.click()
             return True
@@ -100,12 +138,7 @@ class TokopediaGeoScraper:
     def extract_tokopedia_shops(self, keyword: str) -> pd.DataFrame:
         shops = []
         with sync_playwright() as p:
-            
-            browser = p.chromium.launch(
-                headless=False, 
-                channel="msedge"
-            )
-
+            browser = p.chromium.launch(headless=False, channel="msedge")
             context = browser.new_context(viewport={"width": 1440, "height": 900})
             page = context.new_page()
 
@@ -122,8 +155,11 @@ class TokopediaGeoScraper:
                 search_box.fill(keyword)
                 search_box.press("Enter")
                 
-                # OPTIMASI 2: Tunggu sampai elemen hasil muncul (bukan hard sleep 5 detik)
-                page.locator('[data-testid="btnSRPShopTab"]').first.wait_for(state="visible", timeout=10000)
+                try:
+                    page.locator('[data-testid="btnSRPShopTab"]').first.wait_for(state="visible", timeout=10000)
+                except Exception:
+                    self.log("Tab Toko tidak ditemukan")
+                    return pd.DataFrame(columns=["shop_name", "shop_url"])
 
                 self.log("Klik tab Toko...")
                 shop_tab = page.locator('[data-testid="btnSRPShopTab"]').first
@@ -142,7 +178,6 @@ class TokopediaGeoScraper:
                     if self.safe_click(target_checkbox):
                         apply_btn = page.locator('[data-testid="btnSRPApplySeeAllFilter"]').first
                         self.safe_click(apply_btn)
-                        # Beri jeda sebentar agar halaman memuat ulang filter
                         page.wait_for_timeout(3000)
 
                 page_count = 1
@@ -153,11 +188,10 @@ class TokopediaGeoScraper:
 
                     self.log(f"Ekstraksi halaman {page_count}...")
                     
-                    # Tunggu hingga kartu toko pertama muncul
                     try:
                         page.locator('div[data-testid="shop-card"]').first.wait_for(state="visible", timeout=5000)
                     except Exception:
-                        pass # Mungkin halamannya memang kosong
+                        pass 
                         
                     cards = page.locator('div[data-testid="shop-card"]')
                     count = cards.count()
@@ -167,49 +201,48 @@ class TokopediaGeoScraper:
                         try: 
                             name = cards.nth(i).locator('[data-testid="spnSRPShopName"]').inner_text(timeout=2000).strip()
                             url = cards.nth(i).locator('a[data-testid="shop-card-header"]').get_attribute("href", timeout=2000)
-                            if name: shops.append({"shop_name": name, "shop_url": url})
+                            if name: 
+                                shops.append({"shop_name": name, "shop_url": url})
+                                self.log(f"TOKOPEDIA: {name}")
                         except Exception: 
                             continue
 
                     next_btn = page.locator('[aria-label="Laman berikutnya"]').first
                     try:
-                        if next_btn.count() == 0 or next_btn.get_attribute("disabled") is not None: 
+                        if next_btn.count() == 0 or next_btn.get_attribute("disabled") is not None or next_btn.get_attribute("aria-disabled") == "true": 
                             break
                     except Exception: 
                         break
 
                     if not self.safe_click(next_btn): break
-                    
-                    # Sedikit jeda natural (mencegah kedeteksi bot karena klik terlalu cepat)
                     page.wait_for_timeout(2500)
                     page_count += 1
 
             finally:
                 browser.close()
 
-        # Konversi ke List of Dictionaries sebelum ke DataFrame (Lebih hemat memori)
         df = pd.DataFrame(shops)
         return df.drop_duplicates(subset=["shop_name"]) if not df.empty else df
 
     def enrich_google_maps(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty: return df
         
-        # OPTIMASI 3: Pengaturan Selenium agar jauh lebih ringan (Nonaktifkan gambar)
         options = webdriver.ChromeOptions()
         options.add_argument("--start-maximized")
         options.add_experimental_option('excludeSwitches', ['enable-logging'])
-        prefs = {"profile.managed_default_content_settings.images": 2} # Blokir gambar
+        prefs = {"profile.managed_default_content_settings.images": 2} # Blokir gambar untuk kecepatan
         options.add_experimental_option("prefs", prefs)
         
         driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
-        # Tambahkan kolom kosong untuk diisi
-        df["latitude"] = None
-        df["longitude"] = None
-        df["inside_ring"] = False
-        df["idsls"] = ""
-        df["nama_kecamatan"] = ""
-        df["nama_desa"] = ""
+        # Inisialisasi Kolom Baru Sesuai Kode Acuan
+        columns_to_add = [
+            "maps_place_name", "name_similarity", "match_quality", "inside_ring", 
+            "status", "idsls", "nama_kabupaten", "nama_kecamatan", "nama_desa", 
+            "nama_sls", "latitude", "longitude", "phone", "website", "email", "maps_url"
+        ]
+        for col in columns_to_add:
+            df[col] = None
 
         try:
             for i, row in df.iterrows():
@@ -218,11 +251,11 @@ class TokopediaGeoScraper:
                     break 
 
                 shop = row["shop_name"]
-                url = "https://www.google.com/maps/search/" + urllib.parse.quote(f"{shop}, {CTX}")
+                query = f"{shop}, {CTX}"
+                url = "https://www.google.com/maps/search/" + urllib.parse.quote(query)
                 driver.get(url)
 
                 try:
-                    # Smart Wait: Menunggu klik link /place/ (Maksimal 4 detik)
                     place_links = WebDriverWait(driver, 4).until(
                         EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'a[href*="/place/"]'))
                     )
@@ -231,7 +264,7 @@ class TokopediaGeoScraper:
                 except Exception: 
                     pass
 
-                # Smart Wait: Tunggu URL berubah mengandung "@" (koordinat map) maksimal 4 detik
+                # Tunggu map load & ambil koordinat
                 lat, lng = None, None
                 for _ in range(8):
                     m = re.search(r"@(-?\d+\.\d+),(-?\d+\.\d+),", driver.current_url)
@@ -240,18 +273,42 @@ class TokopediaGeoScraper:
                         break
                     time.sleep(0.5)
                 
-                geo_info = self.find_geojson_match(lat, lng)
+                # Ekstraksi Data Tambahan
+                maps_place_name = extract_maps_place_name(driver)
+                similarity = name_similarity(shop, maps_place_name)
+                match_quality = classify_match(similarity)
+                
+                phone = extract_phone(driver)
+                website = extract_website(driver)
+                email = extract_email(website)
 
-                # Update DataFrame menggunakan sintaks yang lebih aman
-                df.at[i, "latitude"] = lat
-                df.at[i, "longitude"] = lng
-                df.at[i, "inside_ring"] = geo_info is not None if geo_info else False
+                # Cek Spasial Geopandas
+                geo_info = self.find_geojson_match(lat, lng)
+                inside_ring = geo_info is not None
+                status = "DALAM_RING" if inside_ring else "DILUAR_RING"
+
+                # Update DataFrame
+                df.at[i, "maps_place_name"] = maps_place_name
+                df.at[i, "name_similarity"] = similarity
+                df.at[i, "match_quality"] = match_quality
+                df.at[i, "inside_ring"] = inside_ring
+                df.at[i, "status"] = status
+                
                 if geo_info:
                     df.at[i, "idsls"] = geo_info.get("idsls", "")
+                    df.at[i, "nama_kabupaten"] = geo_info.get("nama_kabupaten", "")
                     df.at[i, "nama_kecamatan"] = geo_info.get("nama_kecamatan", "")
                     df.at[i, "nama_desa"] = geo_info.get("nama_desa", "")
+                    df.at[i, "nama_sls"] = geo_info.get("nama_sls", "")
                 
-                self.log("MAPS:", shop, "|", lat, lng, "| IDSLS:", geo_info["idsls"] if geo_info else "-")
+                df.at[i, "latitude"] = lat
+                df.at[i, "longitude"] = lng
+                df.at[i, "phone"] = phone
+                df.at[i, "website"] = website
+                df.at[i, "email"] = email
+                df.at[i, "maps_url"] = driver.current_url
+                
+                self.log(f"MAPS: {shop} | {maps_place_name} | sim: {similarity} | {status} | IDSLS: {geo_info['idsls'] if geo_info else '-'}")
 
         finally:
             driver.quit()
@@ -282,3 +339,11 @@ def scrape_tokopedia(keyword, callback=None, stop_check=None):
     if not keyword: return
     scraper = TokopediaGeoScraper(callback=callback, stop_check=stop_check)
     scraper.run(keyword)
+
+# Bisa dieksekusi langsung tanpa GUI dengan menambahkan script ini di bawah:
+if __name__ == "__main__":
+    keyword_input = input("Keyword Tokopedia: ").strip()
+    if keyword_input:
+        scrape_tokopedia(keyword_input)
+    else:
+        print("Keyword tidak boleh kosong")
