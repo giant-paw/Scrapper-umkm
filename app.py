@@ -8,6 +8,7 @@ import multiprocessing
 
 from blibli_scraper import scrape_blibli
 from tokopedia_scraper import scrape_tokopedia 
+from shopee_scraper import scrape_shopee # <-- IMPORT SHOPEE TAMBAHAN BARU
 
 # --- PENGATURAN TEMA ---
 ctk.set_appearance_mode("System")
@@ -43,13 +44,14 @@ class MultiScraperApp(ctk.CTk):
         self.label_keyword.grid(row=0, column=0, padx=(15, 5), pady=15, sticky="e")
 
         self.entry_keyword = ctk.CTkEntry(self.frame_input, placeholder_text="Contoh: Buku", width=160)
-        self.entry_keyword.insert(0, "Buku")
+        self.entry_keyword.insert(0, "Semen")
         self.entry_keyword.grid(row=0, column=1, padx=5, pady=15, sticky="w")
 
         self.label_sumber = ctk.CTkLabel(self.frame_input, text="Sumber:", font=ctk.CTkFont(weight="bold"))
         self.label_sumber.grid(row=0, column=2, padx=(10, 5), pady=15, sticky="e")
 
-        self.option_sumber = ctk.CTkOptionMenu(self.frame_input, values=["Blibli", "Tokopedia"], width=120)
+        # <-- TAMBAHAN SHOPEE DI SINI -->
+        self.option_sumber = ctk.CTkOptionMenu(self.frame_input, values=["Tokopedia", "Shopee", "Blibli"], width=120)
         self.option_sumber.grid(row=0, column=3, padx=5, pady=15, sticky="w")
 
         self.btn_start = ctk.CTkButton(self.frame_input, text="▶ Mulai", command=self.mulai_scraping, width=100, font=ctk.CTkFont(weight="bold"))
@@ -157,11 +159,12 @@ class MultiScraperApp(ctk.CTk):
 
     def proses_background(self, keyword, sumber):
         try:
-            # Tidak ada lagi proses download Playwright di sini!
             if sumber == "Blibli":
                 scrape_blibli(keyword, callback=self.tulis_log, stop_check=self.check_apakah_stop)
             elif sumber == "Tokopedia":
                 scrape_tokopedia(keyword, callback=self.tulis_log, stop_check=self.check_apakah_stop)
+            elif sumber == "Shopee": # <-- LOGIKA SHOPEE DITAMBAHKAN
+                scrape_shopee(keyword, callback=self.tulis_log, stop_check=self.check_apakah_stop)
             
             if self.stop_flag:
                 self.set_status("🔴 Status: Dibatalkan.", "red")
