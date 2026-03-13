@@ -12,7 +12,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 
 # ================= CONFIG & UTILITY =================
-GEOJSON_FILE = "idsls fix.geojson"
+GEOJSON_FILE = "bantul.geojson"  
 CTX = "Bantul"
 OUTPUT_PREFIX = "olx"
 
