@@ -155,7 +155,7 @@ class BlibliGeoScraper:
             self.log(f"Gagal menerapkan filter otomatis: {e}")
         return False
 
-   def scrape_blibli_logic(self, keyword):
+    def scrape_blibli_logic(self, keyword):
         rows = []
         with sync_playwright() as p:
             # SENJATA ANTI-BOT
@@ -304,7 +304,7 @@ class BlibliGeoScraper:
 
             browser.close()
         return pd.DataFrame(rows).drop_duplicates(subset=["shop_name"])
-        
+
     def run(self, keyword):
         df = self.scrape_blibli_logic(keyword)
         if df.empty:
