@@ -50,8 +50,7 @@ class MultiScraperApp(ctk.CTk):
         self.label_sumber = ctk.CTkLabel(self.frame_input, text="Sumber:", font=ctk.CTkFont(weight="bold"))
         self.label_sumber.grid(row=0, column=2, padx=(10, 5), pady=15, sticky="e")
 
-        # <-- TAMBAHAN SHOPEE DI SINI -->
-        self.option_sumber = ctk.CTkOptionMenu(self.frame_input, values=["Tokopedia", "Shopee", "Blibli"], width=120)
+        self.option_sumber = ctk.CTkOptionMenu(self.frame_input, values=["Tokopedia", "Shopee", "Blibli", "OLX"], width=120)
         self.option_sumber.grid(row=0, column=3, padx=5, pady=15, sticky="w")
 
         self.btn_start = ctk.CTkButton(self.frame_input, text="▶ Mulai", command=self.mulai_scraping, width=100, font=ctk.CTkFont(weight="bold"))
@@ -163,8 +162,11 @@ class MultiScraperApp(ctk.CTk):
                 scrape_blibli(keyword, callback=self.tulis_log, stop_check=self.check_apakah_stop)
             elif sumber == "Tokopedia":
                 scrape_tokopedia(keyword, callback=self.tulis_log, stop_check=self.check_apakah_stop)
-            elif sumber == "Shopee": # <-- LOGIKA SHOPEE DITAMBAHKAN
+            elif sumber == "Shopee": 
                 scrape_shopee(keyword, callback=self.tulis_log, stop_check=self.check_apakah_stop)
+            elif sumber == "OLX":
+                from olx_scraper import scrape_olx 
+                scrape_olx(keyword, callback=self.tulis_log, stop_check=self.check_apakah_stop)
             
             if self.stop_flag:
                 self.set_status("🔴 Status: Dibatalkan.", "red")
