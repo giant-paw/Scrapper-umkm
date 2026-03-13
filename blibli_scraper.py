@@ -155,7 +155,7 @@ class BlibliGeoScraper:
             self.log(f"Gagal menerapkan filter otomatis: {e}")
         return False
 
-    def scrape_blibli_logic(self, keyword):
+   def scrape_blibli_logic(self, keyword):
         rows = []
         with sync_playwright() as p:
             # SENJATA ANTI-BOT
@@ -245,16 +245,19 @@ class BlibliGeoScraper:
                     if self.is_stopped(): break
                     try:
                         detail_page.goto(item["url"], wait_until="domcontentloaded", timeout=40000)
-                        detail_page.wait_for_timeout(2000) # Tunggu elemen sidebar kanan loading
+                        detail_page.wait_for_timeout(2500) # Tunggu elemen sidebar kanan loading
                         
-                        # Berbagai kemungkinan class nama toko di halaman detail Blibli
+                        # UPDATE UTAMA: Menambahkan span.seller-name__name ke dalam daftar pencarian
                         shop_selectors = [
+                            "span.seller-name__name",      # <-- Target spesifik yang Anda temukan
+                            "span[class*='seller-name']",  # <-- Cadangan span seller-name
                             "div[class*='merchant-name']",
                             "a[class*='merchant-name']",
                             "h2[class*='merchant-name']",
                             "[data-testid='merchant-name']",
                             "div[class*='seller-name']",
-                            "div.merchant-details__name"
+                            "div.merchant-details__name",
+                            ".seller-name__name"
                         ]
                         
                         shop_name = ""
@@ -300,8 +303,8 @@ class BlibliGeoScraper:
                 else: break
 
             browser.close()
-        return pd.DataFrame(rows)
-
+        return pd.DataFrame(rows).drop_duplicates(subset=["shop_name"])
+        
     def run(self, keyword):
         df = self.scrape_blibli_logic(keyword)
         if df.empty:
