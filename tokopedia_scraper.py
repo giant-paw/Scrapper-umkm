@@ -4,13 +4,14 @@ import json
 import urllib.parse
 from difflib import SequenceMatcher
 import pandas as pd
-import requests
 
-from playwright.sync_api import sync_playwright
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 # ================= CONFIG & UTILITY =================
 GEOJSON_FILE = "bantul.geojson"
@@ -104,14 +105,18 @@ class TokopediaGeoScraper:
                 except: pass
         return None
 
-    def safe_click(self, locator):
+    def safe_click(self, driver, by, selector, timeout=8):
+        """Fungsi klik cerdas versi Selenium"""
         try:
-            locator.scroll_into_view_if_needed(timeout=3000)
-            locator.click(timeout=8000, force=True)
+            el = WebDriverWait(driver, timeout).until(EC.presence_of_element_located((by, selector)))
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", el)
+            time.sleep(1)
+            driver.execute_script("arguments[0].click();", el)
             return True
-        except: return False
+        except:
+            return False
 
-    def scroll_and_load_more(self, page, max_rounds=50):
+    def scroll_and_load_more(self, driver, max_rounds=50):
         self.log("Memulai simulasi scroll ke bawah untuk memuat produk...")
         
         last_item_count = 0
@@ -120,10 +125,11 @@ class TokopediaGeoScraper:
         for i in range(max_rounds):
             if self.is_stopped(): break
             
-            # 1. Hitung jumlah produk yang ada di layar saat ini
-            current_item_count = page.locator('img[alt="product-image"]').count()
+            # Hitung jumlah produk yang ada di layar saat ini
+            current_items = driver.find_elements(By.CSS_SELECTOR, 'img[alt="product-image"]')
+            current_item_count = len(current_items)
             
-            # 2. Evaluasi apakah ada penambahan produk baru
+            # Evaluasi apakah ada penambahan produk baru
             if current_item_count == last_item_count and current_item_count > 0:
                 no_change_count += 1
                 if no_change_count >= 2:
@@ -135,66 +141,96 @@ class TokopediaGeoScraper:
                 last_item_count = current_item_count
                 no_change_count = 0 
             
-            # 3. Scroll perlahan ke bawah
+            # Scroll perlahan ke bawah (mirip mouse wheel)
             for _ in range(3):
-                page.mouse.wheel(0, 1500)
-                page.wait_for_timeout(800)
+                driver.execute_script("window.scrollBy(0, 1500);")
+                time.sleep(0.8)
                 
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            page.wait_for_timeout(2000)
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(2)
             
-            # 4. Cari dan klik tombol
-            btn = page.locator('button:has-text("Muat Lebih Banyak")').first
-            
-            if btn.count() > 0 and btn.is_visible():
-                self.log(f"Klik 'Muat Lebih Banyak' #{i+1}")
-                self.safe_click(btn)
-                page.wait_for_timeout(3500)
+            # Cari dan klik tombol "Muat Lebih Banyak"
+            try:
+                btn_xpath = '//button[contains(translate(text(), "MUAT LEBIH BANYAK", "muat lebih banyak"), "muat lebih banyak")]'
+                btn = driver.find_element(By.XPATH, btn_xpath)
+                if btn.is_displayed():
+                    self.log(f"Klik 'Muat Lebih Banyak' #{i+1}")
+                    self.safe_click(driver, By.XPATH, btn_xpath)
+                    time.sleep(3.5)
+            except:
+                pass
 
     def scrape_tokopedia_logic(self, keyword):
         rows = []
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False)
-            page = browser.new_page(viewport={"width": 1440, "height": 900})
-            
+        
+        # Setup Selenium Chrome Anti-Bot
+        options = webdriver.ChromeOptions()
+        options.add_argument("--start-maximized")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option('useAutomationExtension', False)
+        
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
+        try:
             self.log(f"Mencari produk: {keyword}")
-            page.goto("https://www.tokopedia.com", wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(3000)
+            driver.get("https://www.tokopedia.com")
+            time.sleep(3)
 
-            search_box = page.locator('input[type="search"]').first
-            search_box.fill(keyword)
-            search_box.press("Enter")
-            page.wait_for_timeout(5000)
-
-            self.log("Menerapkan Filter Lokasi (Kab. Bantul)...")
-            see_all = page.locator('[data-testid="lnkSRPSeeAllLocFilter"]').first
-            if not self.safe_click(see_all): 
-                browser.close()
+            # Kotak Pencarian
+            try:
+                search_box = WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="search"]')))
+                search_box.send_keys(keyword)
+                search_box.send_keys(Keys.ENTER)
+                time.sleep(5)
+            except Exception as e:
+                self.log(f"Gagal menemukan kotak pencarian: {e}")
+                driver.quit()
                 return pd.DataFrame()
 
-            page.locator('input[aria-label="Cari lokasi"]').first.fill("Kab. Bantul")
-            page.wait_for_timeout(2000)
+            self.log("Menerapkan Filter Lokasi (Kab. Bantul)...")
             
-            target = page.locator('xpath=//*[contains(normalize-space(text()),"Kab. Bantul")]/ancestor::*[self::label or self::div or self::li][1]').first
-            self.safe_click(target)
-            self.safe_click(page.locator('[data-testid="btnSRPApplySeeAllFilter"]').first)
-            page.wait_for_timeout(5000)
+            # Klik 'Lihat Semua Lokasi'
+            if not self.safe_click(driver, By.CSS_SELECTOR, '[data-testid="lnkSRPSeeAllLocFilter"]'): 
+                self.log("Gagal membuka filter lokasi. Menyimpan data yang ada...")
+                driver.quit()
+                return pd.DataFrame()
 
-            # --- EKSEKUSI SCROLL DAN KLIK MENTOK ---
-            self.scroll_and_load_more(page)
+            # Ketik "Kab. Bantul"
+            try:
+                loc_input = WebDriverWait(driver, 8).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[aria-label="Cari lokasi"]')))
+                loc_input.send_keys("Kab. Bantul")
+                time.sleep(2)
+            except:
+                pass
+            
+            # Pilih "Kab. Bantul" dari hasil pencarian filter
+            target_xpath = '//*[contains(text(),"Kab. Bantul")]/ancestor::*[self::label or self::div or self::li][1]'
+            self.safe_click(driver, By.XPATH, target_xpath)
+            time.sleep(1)
+            
+            # Terapkan
+            self.safe_click(driver, By.CSS_SELECTOR, '[data-testid="btnSRPApplySeeAllFilter"]')
+            time.sleep(5)
+
+            # Eksekusi fungsi Scroll Mentok
+            self.scroll_and_load_more(driver)
 
             self.log("Scraping semua data yang sudah terbuka...")
-            product_imgs = page.locator('img[alt="product-image"]')
+            product_imgs = driver.find_elements(By.CSS_SELECTOR, 'img[alt="product-image"]')
             seen_cards = set()
             
-            for i in range(product_imgs.count()):
+            for img in product_imgs:
                 if self.is_stopped(): break
                 try:
-                    img = product_imgs.nth(i)
-                    card = img.locator("xpath=ancestor::div[contains(., 'Kab. Bantul')][1]")
-                    if card.count() == 0: continue
-
-                    texts = card.locator("span").all_inner_texts()
+                    # Temukan bungkus terluar (card) dari produk ini
+                    card = img.find_element(By.XPATH, "./ancestor::div[contains(., 'Kab. Bantul')][1]")
+                    
+                    # Ekstrak semua teks di dalam card
+                    spans = card.find_elements(By.CSS_SELECTOR, "span")
+                    texts = [span.get_attribute("innerText") for span in spans if span.get_attribute("innerText")]
+                    
                     parsed = parse_card_texts(texts)
                     
                     if not parsed["shop_name"] or "bantul" not in parsed["shop_location"].lower(): continue
@@ -214,7 +250,10 @@ class TokopediaGeoScraper:
                     })
                     self.log(f"Ditemukan: {shop_name}")
                 except: pass
-            browser.close()
+                
+        finally:
+            driver.quit()
+            
         return pd.DataFrame(rows).drop_duplicates(subset=["shop_name"])
 
     def run(self, keyword):
