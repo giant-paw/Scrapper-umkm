@@ -4,7 +4,6 @@ import json
 import urllib.parse
 from difflib import SequenceMatcher
 import pandas as pd
-import requests
 
 from playwright.sync_api import sync_playwright
 from selenium import webdriver
@@ -37,7 +36,7 @@ class BlibliGeoScraper:
     def __init__(self, callback=None, stop_check=None):
         self.log_callback = callback
         self.stop_check = stop_check
-        # Memuat GeoJSON manual
+        # Memuat GeoJSON manual (sama seperti Tokopedia)
         with open(GEOJSON_FILE, "r", encoding="utf-8") as f:
             self.gj = json.load(f)
 
@@ -158,7 +157,7 @@ class BlibliGeoScraper:
     def scrape_blibli_logic(self, keyword):
         rows = []
         with sync_playwright() as p:
-            # SENJATA ANTI-BOT
+            # SENJATA ANTI-BOT DIKEMBALIKAN DI SINI
             browser = p.chromium.launch(
                 headless=False, 
                 channel="msedge", 
@@ -166,9 +165,7 @@ class BlibliGeoScraper:
             )
             context = browser.new_context(no_viewport=True) 
             context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get:()=>undefined})")
-            
             page = context.new_page()
-            detail_page = context.new_page() # Tab terpisah khusus untuk buka satu-satu produk
             
             self.log(f"Mencari produk di Blibli: {keyword}")
             page.goto("https://www.blibli.com/", wait_until="domcontentloaded", timeout=60000)
@@ -179,7 +176,7 @@ class BlibliGeoScraper:
                 inp.click()
                 inp.fill(keyword)
                 page.keyboard.press("Enter")
-                page.wait_for_timeout(5000)
+                page.wait_for_timeout(4000)
             else:
                 self.log("⚠️ Kolom pencarian terblokir atau tidak ditemukan.")
                 browser.close()
@@ -200,8 +197,8 @@ class BlibliGeoScraper:
 
                 self.log(f"\n--- Memproses Halaman {current_page} ---")
                 
-                # Simulasi scroll ke bawah perlahan untuk memuat elemen list produk
-                self.log("Simulasi scroll ke bawah untuk memuat kartu produk...")
+                # Simulasi scroll ke bawah perlahan ala Tokopedia
+                self.log("Simulasi scroll ke bawah untuk memuat item...")
                 for _ in range(5):
                     page.mouse.wheel(0, 1000)
                     page.wait_for_timeout(800)
@@ -209,89 +206,46 @@ class BlibliGeoScraper:
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 page.wait_for_timeout(2000)
 
-                product_cards = page.locator("div.product-list__card, div[class*='product-card']").all()
-                self.log(f"Menemukan {len(product_cards)} produk. Mulai mengumpulkan URL...")
+                product_cards = page.locator("div.product-list__card").all()
+                self.log(f"Mengekstrak {len(product_cards)} produk di halaman ini...")
                 
-                # FASE 1: Kumpulkan URL dan info dasar dulu
-                cards_data = []
-                for card in product_cards:
+                for idx, card in enumerate(product_cards):
                     if self.is_stopped(): break
                     try:
-                        product_name_elem = card.locator("span.els-product__title, div[class*='product-title']").first
+                        product_name_elem = card.locator("span.els-product__title").first
                         product_name = clean_text(product_name_elem.text_content()) if product_name_elem.count() > 0 else ""
                         
-                        price_elem = card.locator("div.els-product__fixed-price span, div[class*='product-price']").last
-                        price = "Rp " + clean_text(price_elem.text_content()) if price_elem.count() > 0 else ""
+                        shop_elem = card.locator("span.els-product__seller-name").first
+                        shop_name = clean_text(shop_elem.text_content()) if shop_elem.count() > 0 else ""
                         
-                        sold_elem = card.locator("div.els-product__sold, span[class*='sold']").first
-                        sold = clean_text(sold_elem.text_content()) if sold_elem.count() > 0 else ""
-                        
-                        link_elem = card.locator("a").first
-                        url = link_elem.get_attribute("href") if link_elem.count() > 0 else ""
-                        if url and url.startswith("/"): url = "https://www.blibli.com" + url
-                        
-                        if product_name and url:
-                            cards_data.append({
-                                "product_name": product_name,
-                                "price": price,
-                                "sold": sold,
-                                "url": url
-                            })
-                    except: pass
-
-                # FASE 2: Buka URL satu per satu di tab sebelah (detail_page) untuk ambil nama toko asli
-                self.log(f"Membuka detail dari {len(cards_data)} produk untuk mengekstrak Nama Toko asli...")
-                for idx, item in enumerate(cards_data):
-                    if self.is_stopped(): break
-                    try:
-                        detail_page.goto(item["url"], wait_until="domcontentloaded", timeout=40000)
-                        detail_page.wait_for_timeout(2000) # Tunggu elemen sidebar kanan loading
-                        
-                        # Berbagai kemungkinan class nama toko di halaman detail Blibli
-                        shop_selectors = [
-                            "div[class*='merchant-name']",
-                            "a[class*='merchant-name']",
-                            "h2[class*='merchant-name']",
-                            "[data-testid='merchant-name']",
-                            "div[class*='seller-name']",
-                            "div.merchant-details__name"
-                        ]
-                        
-                        shop_name = ""
-                        for sel in shop_selectors:
-                            shop_elem = detail_page.locator(sel).first
-                            if shop_elem.is_visible():
-                                shop_name = clean_text(shop_elem.text_content())
-                                break
-                        
-                        if not shop_name or shop_name.lower() == "kab. bantul":
-                            continue # Abaikan kalau gagal ambil atau ternyata isinya lokasi
-                            
-                        # Mencegah duplikasi toko
-                        if shop_name in seen_shops:
-                            continue
-                            
+                        if not shop_name or shop_name in seen_shops: continue
                         seen_shops.add(shop_name)
                         
-                        rows.append({
-                            "shop_name": shop_name,
-                            "shop_location": "Kab. Bantul",
-                            "product_name": item["product_name"],
-                            "price": item["price"],
-                            "sold": item["sold"]
-                        })
-                        self.log(f"  [{idx+1}/{len(cards_data)}] Ditemukan Toko: {shop_name}")
-                    except Exception:
-                        pass # Lewati jika gagal buka URL ini
+                        price_elem = card.locator("div.els-product__fixed-price span").last
+                        price = "Rp " + clean_text(price_elem.text_content()) if price_elem.count() > 0 else ""
+                        
+                        sold_elem = card.locator("div.els-product__sold").first
+                        sold = clean_text(sold_elem.text_content()) if sold_elem.count() > 0 else ""
+                        
+                        if product_name:
+                            # Disamakan format kolomnya dengan Tokopedia
+                            rows.append({
+                                "shop_name": shop_name,
+                                "shop_location": "Kab. Bantul",
+                                "product_name": product_name,
+                                "price": price,
+                                "sold": sold
+                            })
+                            self.log(f"Ditemukan: {shop_name}")
+                    except: pass
                 
-                # Navigasi ke Halaman Pencarian Selanjutnya
                 if current_page < max_pages and not self.is_stopped():
                     try:
                         next_page_btn = page.locator("button.blu-pagination__button").filter(has_text=str(current_page + 1)).first
                         if next_page_btn.is_visible():
                             self.log(f"Pindah ke halaman {current_page + 1}...")
                             self.safe_click(next_page_btn)
-                            page.wait_for_timeout(4000)
+                            page.wait_for_timeout(3000)
                             current_page += 1
                         else:
                             self.log("Mentok! Tidak ada halaman selanjutnya.")
@@ -338,6 +292,7 @@ class BlibliGeoScraper:
             
             geo_info = self.find_geojson_match(lat, lng)
             
+            # Format Output Maps disamakan dengan Tokopedia
             df.at[i, "latitude"] = lat
             df.at[i, "longitude"] = lng
             df.at[i, "idsls"] = geo_info["idsls"] if geo_info else ""
