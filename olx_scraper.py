@@ -5,14 +5,16 @@ import urllib.parse
 from difflib import SequenceMatcher
 import pandas as pd
 
-from playwright.sync_api import sync_playwright
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 # ================= CONFIG & UTILITY =================
-GEOJSON_FILE = "bantul.geojson"  
+GEOJSON_FILE = "idsls fix.geojson"
 CTX = "Bantul"
 OUTPUT_PREFIX = "olx"
 
@@ -87,51 +89,59 @@ class OLXGeoScraper:
                 except: pass
         return None
 
-    def safe_click(self, locator):
+    def safe_click(self, driver, element=None, by=None, selector=None, timeout=8):
+        """Fungsi klik cerdas versi Selenium"""
         try:
-            locator.scroll_into_view_if_needed(timeout=3000)
-            locator.click(timeout=8000, force=True)
+            if not element:
+                element = WebDriverWait(driver, timeout).until(EC.presence_of_element_located((by, selector)))
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+            time.sleep(1)
+            driver.execute_script("arguments[0].click();", element)
             return True
-        except: return False
+        except:
+            return False
 
-    def _handle_popup(self, page):
+    def _handle_popup(self, driver):
         """Menutup pop-up login / iklan yang sering muncul di OLX"""
         self.log("Mengecek popup OLX...")
         try:
             # Tekan Escape untuk mematikan modal/pop-up standar
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(1000)
+            webdriver.ActionChains(driver).send_keys(Keys.ESCAPE).perform()
+            time.sleep(1)
             
-            # Jika ada tombol silang manual (seperti di Inspect Element Anda)
-            close_btn = page.locator('button[data-aut-id="btnClose"], svg[data-aut-id="icon"]').first
-            if close_btn.is_visible(timeout=3000):
-                self.safe_click(close_btn)
-                page.wait_for_timeout(1000)
+            # Jika ada tombol silang manual
+            close_btns = driver.find_elements(By.CSS_SELECTOR, 'button[data-aut-id="btnClose"]')
+            for btn in close_btns:
+                if btn.is_displayed():
+                    self.safe_click(driver, element=btn)
+                    self.log("✅ Pop-up berhasil ditutup.")
+                    time.sleep(1)
+                    break
         except: pass
 
     def scrape_olx_logic(self, keyword):
         rows = []
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=False, 
-                channel="msedge", 
-                args=["--start-maximized", "--disable-blink-features=AutomationControlled"]
-            )
-            context = browser.new_context(no_viewport=True) 
-            context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get:()=>undefined})")
-            
-            page = context.new_page()
-            detail_page = context.new_page() # Tab terpisah untuk ambil nama penjual
-            
+        
+        # Setup Selenium Chrome Anti-Bot
+        options = webdriver.ChromeOptions()
+        options.add_argument("--start-maximized")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option('useAutomationExtension', False)
+        
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
+        try:
             # Akses langsung ke URL dengan filter area Kab. Bantul
             safe_kw = urllib.parse.quote(keyword)
             search_url = f"https://www.olx.co.id/bantul-kab_g4000068/q-{safe_kw}"
             
             self.log(f"Membuka OLX area Bantul untuk: '{keyword}'...")
-            page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(4000)
+            driver.get(search_url)
+            time.sleep(4)
 
-            self._handle_popup(page)
+            self._handle_popup(driver)
 
             # --- FASE 1: SCROLL & KLIK MUAT LAINNYA ---
             self.log("Menggulir halaman dan memuat semua produk...")
@@ -142,17 +152,17 @@ class OLXGeoScraper:
                 if self.is_stopped(): break
                 
                 # Hitung produk saat ini
-                current_count = page.locator('a[href*="/item/"]').count()
+                current_count = len(driver.find_elements(By.CSS_SELECTOR, 'a[href*="/item/"]'))
                 
-                # Scroll mentok bawah untuk memicu lazy load gambar & tombol
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                page.wait_for_timeout(1500)
+                # Scroll mentok bawah untuk memicu lazy load
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(1.5)
                 
-                btn_load_more = page.locator('button[data-aut-id="btnLoadMore"]').first
-                if btn_load_more.is_visible():
+                load_more_btns = driver.find_elements(By.CSS_SELECTOR, 'button[data-aut-id="btnLoadMore"]')
+                if load_more_btns and load_more_btns[0].is_displayed():
                     self.log(f"Klik 'Muat Lainnya' #{i+1}...")
-                    self.safe_click(btn_load_more)
-                    page.wait_for_timeout(3000)
+                    self.safe_click(driver, element=load_more_btns[0])
+                    time.sleep(3)
                     no_change_count = 0
                 else:
                     if current_count == last_count:
@@ -167,7 +177,7 @@ class OLXGeoScraper:
 
             # --- FASE 2: MENGUMPULKAN DATA KARTU ---
             self.log("Mengekstrak URL dari kartu produk...")
-            cards = page.locator('a[href*="/item/"]').all()
+            cards = driver.find_elements(By.CSS_SELECTOR, 'a[href*="/item/"]')
             
             items_to_visit = []
             for card in cards:
@@ -177,14 +187,14 @@ class OLXGeoScraper:
                     if not url: continue
                     if url.startswith("/"): url = "https://www.olx.co.id" + url
                     
-                    title_el = card.locator('[data-aut-id="itemTitle"]').first
-                    title = clean_text(title_el.text_content()) if title_el.count() > 0 else ""
+                    title_el = card.find_elements(By.CSS_SELECTOR, '[data-aut-id="itemTitle"]')
+                    title = clean_text(title_el[0].get_attribute("innerText")) if title_el else ""
                     
-                    price_el = card.locator('[data-aut-id="itemPrice"]').first
-                    price = clean_text(price_el.text_content()) if price_el.count() > 0 else ""
+                    price_el = card.find_elements(By.CSS_SELECTOR, '[data-aut-id="itemPrice"]')
+                    price = clean_text(price_el[0].get_attribute("innerText")) if price_el else ""
                     
-                    loc_el = card.locator('[data-aut-id="item-location"]').first
-                    location = clean_text(loc_el.text_content()) if loc_el.count() > 0 else ""
+                    loc_el = card.find_elements(By.CSS_SELECTOR, '[data-aut-id="item-location"]')
+                    location = clean_text(loc_el[0].get_attribute("innerText")) if loc_el else ""
                     
                     if "bantul" not in location.lower(): continue # Filter memastikan lokasi
                     
@@ -196,21 +206,24 @@ class OLXGeoScraper:
                     })
                 except: pass
 
-            # --- FASE 3: BUKA TAB DETAIL UNTUK NAMA PENJUAL ---
+            # --- FASE 3: BUKA DETAIL UNTUK NAMA PENJUAL ---
             self.log(f"Membuka detail {len(items_to_visit)} produk untuk mencari identitas penjual...")
             seen_shops = set()
             
             for idx, item in enumerate(items_to_visit):
                 if self.is_stopped(): break
                 try:
-                    detail_page.goto(item["url"], wait_until="domcontentloaded", timeout=40000)
-                    detail_page.wait_for_timeout(2000)
+                    driver.get(item["url"])
+                    time.sleep(2.5)
                     
                     # Targetkan selector .eHFQs dari hasil inspect Anda
-                    seller_el = detail_page.locator('.eHFQs, [data-aut-id="profileCard"] ._2tgkn div').first
+                    seller_els = driver.find_elements(By.CSS_SELECTOR, '.eHFQs, [data-aut-id="profileCard"] ._2tgkn div')
                     seller_name = ""
-                    if seller_el.is_visible():
-                        seller_name = clean_text(seller_el.text_content())
+                    
+                    for el in seller_els:
+                        if el.is_displayed():
+                            seller_name = clean_text(el.get_attribute("innerText"))
+                            break
                     
                     if not seller_name or seller_name.lower() == "olx user":
                         # Kalau namanya tidak ketemu, kita ambil sebagian id URL sebagai penanda toko
@@ -233,8 +246,10 @@ class OLXGeoScraper:
                     self.log(f"  [{idx+1}/{len(items_to_visit)}] Ditemukan Penjual: {seller_name}")
                 except Exception as e:
                     pass
-
-            browser.close()
+        
+        finally:
+            driver.quit()
+            
         return pd.DataFrame(rows).drop_duplicates(subset=["shop_name"])
 
     def run(self, keyword):
