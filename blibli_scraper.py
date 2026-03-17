@@ -4,10 +4,17 @@ import json
 import urllib.parse
 from difflib import SequenceMatcher
 import pandas as pd
-from playwright.sync_api import sync_playwright
+
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 # ================= CONFIG & UTILITY =================
-GEOJSON_FILE = "bantul.geojson"
+GEOJSON_FILE = "bantul.geojson"  
 CTX = "Yogyakarta"
 OUTPUT_PREFIX = "blibli"
 
@@ -31,12 +38,9 @@ class BlibliGeoScraper:
     def __init__(self, callback=None, stop_check=None):
         self.log_callback = callback
         self.stop_check = stop_check
-        try:
-            with open(GEOJSON_FILE, "r", encoding="utf-8") as f:
-                self.gj = json.load(f)
-        except Exception as e:
-            self.log(f"Peringatan: Gagal memuat {GEOJSON_FILE}: {e}")
-            self.gj = {}
+        # Memuat GeoJSON
+        with open(GEOJSON_FILE, "r", encoding="utf-8") as f:
+            self.gj = json.load(f)
 
     def log(self, msg):
         if self.log_callback: self.log_callback(msg)
@@ -85,155 +89,161 @@ class BlibliGeoScraper:
                 except: pass
         return None
 
-    def _handle_location_popup(self, page):
-        """Menutup popup lokasi (Aktifkan lokasi? Nanti saja)"""
+    def safe_click(self, driver, element=None, by=None, selector=None, timeout=8):
+        try:
+            if not element:
+                element = WebDriverWait(driver, timeout).until(EC.presence_of_element_located((by, selector)))
+            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+            time.sleep(1)
+            driver.execute_script("arguments[0].click();", element)
+            return True
+        except:
+            return False
+
+    def _handle_location_popup(self, driver):
         self.log("Mengecek popup lokasi Blibli...")
         try:
-            nanti_btn = page.locator("button.blu-button").filter(has_text=re.compile(r"Nanti saja", re.IGNORECASE)).first
-            if nanti_btn.is_visible(timeout=3000):
-                nanti_btn.click(force=True)
-                page.wait_for_timeout(1000)
-        except Exception:
-            pass
+            nanti_btns = driver.find_elements(By.XPATH, "//button[contains(translate(text(), 'NANTI SAJA', 'nanti saja'), 'nanti saja')]")
+            for btn in nanti_btns:
+                if btn.is_displayed():
+                    self.safe_click(driver, element=btn)
+                    time.sleep(1)
+                    break
+        except: pass
 
-    def _apply_filter(self, page):
-        """Menerapkan filter Yogyakarta berdasarkan HTML Blibli terbaru"""
+    def _apply_filter(self, driver):
         self.log(f"Menerapkan filter Lokasi ({CTX})...")
-        page.evaluate("window.scrollBy(0, 300)")
-        page.wait_for_timeout(1500)
+        driver.execute_script("window.scrollBy(0, 300);")
+        time.sleep(1)
 
         try:
-            # 1. Cari Header Lokasi Toko
-            all_headers = page.locator("div.filter-group__header").all()
+            all_headers = driver.find_elements(By.CSS_SELECTOR, "div.filter-group__header")
             target_group = None
             
             for header in all_headers:
-                if "lokasi toko" in header.text_content().lower():
-                    target_group = header.locator("xpath=..")
+                if "lokasi toko" in header.text.lower():
+                    target_group = header.find_element(By.XPATH, "..")
                     break
             
             if target_group:
-                # 2. Klik "Lihat Semua"
-                lihat_semua = target_group.locator("div.filter-checkbox-list__see-all").first
-                if lihat_semua.is_visible():
-                    lihat_semua.click(force=True)
-                    self.log("Klik tombol 'Lihat semua' lokasi...")
+                lihat_semua = target_group.find_elements(By.CSS_SELECTOR, "div.filter-checkbox-list__see-all")
+                if lihat_semua and lihat_semua[0].is_displayed():
+                    self.safe_click(driver, element=lihat_semua[0])
                     
-                    # 3. Tunggu Modal Terbuka
-                    modal = page.locator("div[class*='filter-desktop-modal']").first
-                    modal.wait_for(state="visible", timeout=8000)
-                    
-                    # 4. Ketik Pencarian di dalam Modal
-                    search_input = modal.locator("input.blu-text-field, input[type='text']").first
-                    if search_input.is_visible():
-                        search_input.click(force=True)
-                        search_input.fill(CTX)
-                        page.wait_for_timeout(2000) # Tunggu hasil pencarian muncul
+                    try:
+                        modal = WebDriverWait(driver, 5).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.filter-desktop-modal")))
                         
-                        # 5. Centang Checkbox Yogyakarta
-                        checkbox_label = modal.locator("label.blu-checkbox").filter(has_text=re.compile(CTX, re.IGNORECASE)).first
-                        if checkbox_label.is_visible():
-                            checkbox_label.click(force=True)
-                            self.log(f"Checkbox {CTX} dicentang!")
-                            page.wait_for_timeout(1000) # Jeda agar tombol simpan aktif
+                        search_input = modal.find_elements(By.CSS_SELECTOR, "input.blu-text-field")
+                        if search_input and search_input[0].is_displayed():
+                            search_input[0].send_keys(CTX)
+                            time.sleep(2)
+                            
+                        labels = modal.find_elements(By.CSS_SELECTOR, "label.blu-checkbox")
+                        for lbl in labels:
+                            if CTX.lower() in lbl.text.lower():
+                                self.safe_click(driver, element=lbl)
+                                time.sleep(0.5)
+                                break
 
-                    # 6. Klik Simpan (Cari tombol button warna biru ber-class b-primary)
-                    simpan_btn = modal.locator("button.blu-button.b-primary").filter(has_text=re.compile(r"Simpan|Terapkan", re.IGNORECASE)).first
-                    if simpan_btn.is_visible():
-                        simpan_btn.click(force=True)
-                        self.log(f"Filter {CTX} BERHASIL disimpan.")
-                        page.wait_for_timeout(4000)
-                        return True
+                        simpan_btns = modal.find_elements(By.XPATH, ".//button[contains(translate(text(), 'SIMPAN', 'simpan'), 'simpan')]")
+                        for btn in simpan_btns:
+                            if btn.is_displayed() and btn.is_enabled():
+                                self.safe_click(driver, element=btn)
+                                self.log(f"Filter {CTX} BERHASIL diterapkan lewat modal.")
+                                time.sleep(4)
+                                return True
+                    except Exception as e:
+                        self.log(f"Gagal interaksi dengan modal filter: {e}")
                 else:
-                    # Alternatif: Jika checkbox Yogyakarta sudah ada di luar tanpa klik "Lihat semua"
-                    direct_check = target_group.locator("label").filter(has_text=re.compile(CTX, re.IGNORECASE)).first
-                    if direct_check.is_visible():
-                        direct_check.click(force=True)
-                        self.log(f"Filter {CTX} (Langsung) BERHASIL diterapkan.")
-                        page.wait_for_timeout(4000)
-                        return True
+                    direct_checks = target_group.find_elements(By.CSS_SELECTOR, "label")
+                    for check in direct_checks:
+                        if CTX.lower() in check.text.lower() and check.is_displayed():
+                            self.safe_click(driver, element=check)
+                            self.log(f"Filter {CTX} (Langsung) BERHASIL diterapkan.")
+                            time.sleep(4)
+                            return True
         except Exception as e:
             self.log(f"Gagal menerapkan filter otomatis: {e}")
         return False
 
-    def extract_blibli_shops(self, keyword, p):
-        unique_shops = set()
+    def scrape_blibli_logic(self, keyword):
+        rows = []
+        options = webdriver.ChromeOptions()
+        options.add_argument("--start-maximized")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option('useAutomationExtension', False)
         
-        browser = p.chromium.launch(
-            headless=False, 
-            channel="msedge", 
-            args=["--start-maximized", "--disable-blink-features=AutomationControlled"]
-        )
-
-        context = browser.new_context(no_viewport=True) 
-        context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get:()=>undefined})")
-        page = context.new_page()
-        detail_page = context.new_page() 
-
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
         try:
-            self.log(f"Membuka browser... Mencari: {keyword}")
-            page.goto("https://www.blibli.com/", wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(3000)
-            
-            inp = page.locator("input[placeholder*='Cari'], input[type='search'], input[data-testid*='search']").first
-            if inp.is_visible():
-                inp.click(force=True)
-                inp.fill(keyword)
-                page.keyboard.press("Enter")
-                page.wait_for_timeout(5000)
-            else:
-                self.log("⚠️ Kolom pencarian tidak ditemukan.")
-                return []
+            self.log(f"Mencari produk di Blibli: {keyword}")
+            driver.get("https://www.blibli.com/")
+            time.sleep(3)
 
-            self._handle_location_popup(page)
+            # Pencarian
+            try:
+                search_box = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, "input[placeholder*='Cari'], input[type='search']"))
+                )
+                search_box.click()
+                search_box.send_keys(keyword)
+                search_box.send_keys(Keys.ENTER)
+                time.sleep(5)
+            except:
+                self.log("⚠️ Kolom pencarian terblokir atau tidak ditemukan.")
+                return pd.DataFrame()
+
+            self._handle_location_popup(driver)
             
             # Terapkan filter lokasi
             for _ in range(3):
                 if self.is_stopped(): break
-                if self._apply_filter(page): break
-            
+                if self._apply_filter(driver): break
+
+            seen_shops = set()
             current_page = 1
             max_pages = 10
             cards_data = []
 
+            # FASE 1: Kumpulkan URL produk dari halaman
             while current_page <= max_pages:
                 if self.is_stopped(): break
                 self.log(f"\n--- Memproses Halaman {current_page} ---")
                 
-                # Simulasi scroll ke bawah perlahan untuk lazy-loading
-                for _ in range(6):
-                    page.mouse.wheel(0, 1200)
-                    page.wait_for_timeout(1000)
+                self.log("Simulasi scroll ke bawah untuk memuat kartu produk...")
+                for _ in range(5):
+                    driver.execute_script("window.scrollBy(0, 1000);")
+                    time.sleep(0.8)
                 
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                page.wait_for_timeout(2000)
+                driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                time.sleep(2)
 
-                product_cards = page.locator("div.product-list__card, div[class*='product-card']").all()
-                self.log(f"Menemukan {len(product_cards)} produk di halaman {current_page}.")
+                product_cards = driver.find_elements(By.CSS_SELECTOR, "div.product-list__card, div[class*='product-card']")
+                self.log(f"Menemukan {len(product_cards)} produk. Mulai mengumpulkan URL...")
                 
                 for card in product_cards:
                     if self.is_stopped(): break
                     try:
-                        link_elem = card.locator("a").first
-                        if link_elem.is_visible():
-                            url = link_elem.get_attribute("href")
-                            if url and url.startswith("/"): url = "https://www.blibli.com" + url
-                            if url: cards_data.append({"url": url})
+                        links = card.find_elements(By.TAG_NAME, "a")
+                        if not links: continue
+                        url = links[0].get_attribute("href")
+                        
+                        if url and url.startswith("/"): url = "https://www.blibli.com" + url
+                        if url:
+                            cards_data.append({"url": url})
                     except: pass
                 
-                # PINDAH HALAMAN - MENGGUNAKAN XPATH PRESISI HTML ANDA
+                # Coba pindah halaman
                 if current_page < max_pages and not self.is_stopped():
                     try:
-                        next_page_str = str(current_page + 1)
-                        # Mencari tombol angka di dalam container yang spesifik
-                        next_page_xpath = f"//div[contains(@class, 'blu-pagination__button-container')]//button[text()='{next_page_str}']"
-                        next_page_btn = page.locator(next_page_xpath).first
-                        
-                        if next_page_btn.is_visible():
-                            next_page_btn.scroll_into_view_if_needed()
-                            next_page_btn.click(force=True)
-                            self.log(f"Pindah ke halaman {next_page_str}...")
-                            page.wait_for_timeout(5000)
+                        next_page_xpath = f"//button[contains(@class, 'blu-pagination__button') and text()='{current_page + 1}']"
+                        next_btns = driver.find_elements(By.XPATH, next_page_xpath)
+                        if next_btns and next_btns[0].is_displayed():
+                            self.log(f"Pindah ke halaman {current_page + 1}...")
+                            self.safe_click(driver, element=next_btns[0])
+                            time.sleep(4)
                             current_page += 1
                         else:
                             self.log("Mentok! Tombol halaman selanjutnya tidak ditemukan.")
@@ -244,137 +254,166 @@ class BlibliGeoScraper:
                 else: 
                     break
 
-            # Ekstrak nama Toko asli
-            self.log(f"Mengekstrak {len(cards_data)} URL untuk menemukan Nama Toko...")
+            # FASE 2: Buka URL satu per satu untuk ambil data lengkap & nama toko
+            self.log(f"Membuka detail dari {len(cards_data)} produk untuk mengekstrak Nama Toko asli...")
             for idx, item in enumerate(cards_data):
                 if self.is_stopped(): break
                 try:
-                    detail_page.goto(item["url"], wait_until="domcontentloaded", timeout=40000)
-                    detail_page.wait_for_timeout(2000)
+                    driver.get(item["url"])
+                    time.sleep(2.5) 
+                    
+                    product_name = ""
+                    try:
+                        title_el = driver.find_element(By.CSS_SELECTOR, "h1, .product-name")
+                        product_name = clean_text(title_el.text)
+                    except: pass
 
                     shop_selectors = [
-                        "span.seller-name__name", "span[class*='seller-name']", 
-                        "div[class*='merchant-name']", "a[class*='merchant-name']",
-                        "h2[class*='merchant-name']", "[data-testid='merchant-name']"
+                        "span.seller-name__name",      
+                        "span[class*='seller-name']",  
+                        "div[class*='merchant-name']",
+                        "a[class*='merchant-name']",
+                        "h2[class*='merchant-name']",
+                        "[data-testid='merchant-name']",
+                        "div.merchant-details__name",
+                        ".seller-name__name"
                     ]
+                    
                     shop_name = ""
                     for sel in shop_selectors:
-                        shop_elem = detail_page.locator(sel).first
-                        if shop_elem.is_visible():
-                            shop_name = clean_text(shop_elem.text_content())
-                            break
+                        try:
+                            shop_elem = driver.find_element(By.CSS_SELECTOR, sel)
+                            if shop_elem.is_displayed():
+                                shop_name = clean_text(shop_elem.get_attribute("innerText"))
+                                break
+                        except: pass
                     
-                    # Coret jika yang terdeteksi hanya lokasi kotanya
-                    if not shop_name or shop_name.lower() in ["yogyakarta", "kota yogyakarta", "sleman", "bantul", "kab. bantul", "di yogyakarta"]:
+                    if not shop_name or shop_name.lower() in ["kab. bantul", "yogyakarta", "kota yogyakarta", "sleman"]:
+                        continue 
+                        
+                    if shop_name in seen_shops:
                         continue
                         
-                    if shop_name not in unique_shops:
-                        unique_shops.add(shop_name)
-                        self.log(f"  [{idx+1}/{len(cards_data)}] Ditemukan Toko: {shop_name}")
-                except: pass
-
+                    seen_shops.add(shop_name)
+                    
+                    rows.append({
+                        "shop_name": shop_name
+                    })
+                    self.log(f"  [{idx+1}/{len(cards_data)}] Ditemukan Toko: {shop_name}")
+                except Exception:
+                    pass 
         finally:
-            browser.close()
+            driver.quit()
             
-        return list(unique_shops)
+        return pd.DataFrame(rows).drop_duplicates(subset=["shop_name"])
 
-    def enrich_google_maps(self, unique_shops, keyword, p):
-        self.log(f"\nTotal toko unik: {len(unique_shops)}. Memulai pengayaan Maps...")
-        
-        browser = p.chromium.launch(headless=False, channel="msedge", args=["--start-maximized"])
-        context = browser.new_context(no_viewport=True)
-        page = context.new_page()
-        
+    def run(self, keyword):
+        df = self.scrape_blibli_logic(keyword)
+        if df.empty:
+            self.log("Tidak ada data ditemukan.")
+            return
+
+        self.log(f"Total toko unik ditemukan: {len(df)}. Memulai pengayaan Google Maps...")
+        options = webdriver.ChromeOptions()
+        # options.add_argument("--headless") # Aktifkan jika ingin Maps di background
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+
         final_rows = []
 
-        try:
-            for shop in unique_shops:
-                if self.is_stopped(): break
-                
-                # QUERY GOOGLE MAPS = {NAMA TOKO} YOGYAKARTA
-                maps_query = f"{shop} {CTX}"
-                self.log(f"Mencari di Maps: {maps_query}")
-                
-                url = "https://www.google.com/maps/search/" + urllib.parse.quote(maps_query)
-                page.goto(url, wait_until="domcontentloaded", timeout=60000)
-                page.wait_for_timeout(4000)
-                
-                # Jika hasil pencarian berupa list, klik yang paling atas
-                try:
-                    place_links = page.locator('a[href*="/place/"]').all()
-                    if place_links:
-                        place_links[0].click(force=True)
-                        page.wait_for_timeout(3000)
-                except: pass
+        for i, row in df.iterrows():
+            if self.is_stopped(): break
+            shop = row["shop_name"]
+            
+            # Format query: "Nama Toko yogyakarta"
+            maps_query = f"{shop} {CTX}"
+            self.log(f"Mencari di Maps: {maps_query}")
+            
+            driver.get("https://www.google.com/maps/search/" + urllib.parse.quote(maps_query))
+            time.sleep(4)
+            
+            # Klik hasil pertama jika muncul dalam bentuk daftar
+            try:
+                place_links = driver.find_elements(By.CSS_SELECTOR, 'a[href*="/place/"]')
+                if place_links:
+                    driver.execute_script("arguments[0].click();", place_links[0])
+                    time.sleep(3)
+            except: pass
 
-                maps_url = page.url
-                
-                maps_place_name = ""
-                try:
-                    h1 = page.locator("h1").first
-                    if h1.is_visible():
-                        maps_place_name = clean_text(h1.text_content())
-                    else: maps_place_name = shop
-                except: maps_place_name = shop
+            maps_url = driver.current_url
+            
+            # Ambil Nama Tempat di Maps
+            maps_place_name = ""
+            try:
+                h1 = driver.find_element(By.CSS_SELECTOR, "h1")
+                maps_place_name = clean_text(h1.text)
+            except: 
+                maps_place_name = shop
 
-                maps_address = ""
-                try:
-                    btn_addr = page.locator('button[data-item-id="address"]').first
-                    if btn_addr.is_visible():
-                        maps_address = btn_addr.get_attribute("aria-label").replace("Alamat: ", "").strip()
-                        if not maps_address:
-                            maps_address = clean_text(btn_addr.text_content())
-                except: pass
+            # Ambil Alamat
+            maps_address = ""
+            try:
+                btn_addr = driver.find_element(By.CSS_SELECTOR, 'button[data-item-id="address"]')
+                maps_address = btn_addr.get_attribute("aria-label").replace("Alamat: ", "").strip()
+                if not maps_address:
+                    maps_address = clean_text(btn_addr.text)
+            except: pass
 
-                phone = ""
-                try:
-                    btn_phone = page.locator('button[data-item-id^="phone:tel:"]').first
-                    if btn_phone.is_visible():
-                        phone = btn_phone.get_attribute("aria-label").replace("Nomor telepon: ", "").strip()
-                        if not phone:
-                            phone = clean_text(btn_phone.text_content())
-                except: pass
+            # Ambil Nomor Telepon
+            phone = ""
+            try:
+                btn_phone = driver.find_element(By.CSS_SELECTOR, 'button[data-item-id^="phone:tel:"]')
+                phone = btn_phone.get_attribute("aria-label").replace("Nomor telepon: ", "").strip()
+                if not phone:
+                    phone = clean_text(btn_phone.text)
+            except: pass
 
-                m = re.search(r"@(-?\d+\.\d+),(-?\d+\.\d+),", maps_url)
-                lat, lng = (float(m.group(1)), float(m.group(2))) if m else (None, None)
-                
-                geo_info = self.find_geojson_match(lat, lng)
-                
-                if lat is None:
-                    status = "NOT_FOUND"
-                else:
-                    status = "DALAM_RING" if geo_info else "DILUAR_RING"
-                
-                similarity = SequenceMatcher(None, shop.lower(), maps_place_name.lower()).ratio()
-                if similarity >= 0.8: match_quality = "TINGGI"
-                elif similarity >= 0.5: match_quality = "SEDANG"
-                else: match_quality = "RENDAH"
+            # Ekstrak Lat & Lng dari URL
+            m = re.search(r"@(-?\d+\.\d+),(-?\d+\.\d+),", maps_url)
+            lat, lng = (float(m.group(1)), float(m.group(2))) if m else (None, None)
+            
+            # CEK GEOJSON & RING MAPS (Yang Tadi Terlewat)
+            geo_info = self.find_geojson_match(lat, lng)
+            
+            if lat is None:
+                status = "NOT_FOUND"
+            else:
+                status = "DALAM_RING" if geo_info else "DILUAR_RING"
+            
+            # Cek kecocokan (Similarity)
+            similarity = SequenceMatcher(None, shop.lower(), maps_place_name.lower()).ratio()
+            if similarity >= 0.8:
+                match_quality = "TINGGI"
+            elif similarity >= 0.5:
+                match_quality = "SEDANG"
+            else:
+                match_quality = "RENDAH"
 
-                final_rows.append({
-                    "shop_name": shop,
-                    "maps_query": maps_query,
-                    "maps_place_name": maps_place_name,
-                    "maps_address": maps_address,
-                    "name_similarity": round(similarity, 4),
-                    "match_quality": match_quality,
-                    "latitude": lat,
-                    "longitude": lng,
-                    "phone": phone,
-                    "website": "",
-                    "email": "",
-                    "maps_url": maps_url,
-                    "idsls": geo_info["idsls"] if geo_info else "",
-                    "nama_kecamatan": geo_info["nama_kecamatan"] if geo_info else "",
-                    "nama_desa": geo_info["nama_desa"] if geo_info else "",
-                    "nama_sls": geo_info["nama_sls"] if geo_info else "",
-                    "status": status
-                })
-                self.log(f"Maps: {shop} -> {status} | Sim: {round(similarity, 2)} | Telp: {phone}")
+            # Simpan hasil gabungan (Template CSV + GeoJSON)
+            final_rows.append({
+                "shop_name": shop,
+                "maps_query": maps_query,
+                "maps_place_name": maps_place_name,
+                "maps_address": maps_address,
+                "name_similarity": round(similarity, 4),
+                "match_quality": match_quality,
+                "latitude": lat,
+                "longitude": lng,
+                "phone": phone,
+                "website": "",  # Sesuai template
+                "email": "",    # Sesuai template
+                "maps_url": maps_url,
+                "idsls": geo_info["idsls"] if geo_info else "",                 # <-- KEMBALI!
+                "nama_kecamatan": geo_info["nama_kecamatan"] if geo_info else "", # <-- KEMBALI!
+                "nama_desa": geo_info["nama_desa"] if geo_info else "",           # <-- KEMBALI!
+                "nama_sls": geo_info["nama_sls"] if geo_info else "",             # <-- KEMBALI!
+                "status": status                                                # <-- KEMBALI!
+            })
+            
+            self.log(f"Maps: {shop} -> {status} | Sim: {round(similarity, 2)} | Telp: {phone}")
 
-        finally:
-            browser.close()
-
-        # Format Excel Standar 17 Kolom
+        driver.quit()
+        
+        # Simpan ke DataFrame dengan urutan kolom yang sempurna
         output_df = pd.DataFrame(final_rows, columns=[
             "shop_name", "maps_query", "maps_place_name", "maps_address", 
             "name_similarity", "match_quality", "latitude", "longitude", 
@@ -385,15 +424,6 @@ class BlibliGeoScraper:
         output_file = f"{OUTPUT_PREFIX}_{sanitize_filename(keyword)}_enriched.xlsx"
         output_df.to_excel(output_file, index=False)
         self.log(f"✅ Selesai! File disimpan: {output_file}")
-
-    def run(self, keyword):
-        with sync_playwright() as p:
-            unique_shops = self.extract_blibli_shops(keyword, p)
-            if self.is_stopped() or not unique_shops:
-                self.log("Tidak ada data untuk dilanjutkan ke Maps.")
-                return
-            
-            self.enrich_google_maps(list(unique_shops), keyword, p)
 
 def scrape_blibli(keyword, callback=None, stop_check=None):
     scraper = BlibliGeoScraper(callback=callback, stop_check=stop_check)
