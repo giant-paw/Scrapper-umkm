@@ -4,18 +4,12 @@ import json
 import urllib.parse
 from difflib import SequenceMatcher
 import pandas as pd
-
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from playwright.sync_api import sync_playwright
 
 # ================= CONFIG & UTILITY =================
 GEOJSON_FILE = "bantul.geojson"
-CTX = "Bantul"
+MAPS_CTX = "Yogyakarta" # Digunakan untuk Query Google Maps
+FILTER_CTX = "Kab. Bantul" # Digunakan untuk Filter Tokopedia
 OUTPUT_PREFIX = "tokopedia"
 
 def sanitize_filename(text):
@@ -40,23 +34,31 @@ def parse_card_texts(texts):
     for t in texts:
         if not price and t.lower().startswith("rp"): price = t
         if not sold and "terjual" in t.lower(): sold = t
+        
+    # Karena kita filter Bantul di Tokopedia, kita cari lokasi Bantul
     for i in range(len(texts) - 1):
         if "bantul" in texts[i + 1].lower():
             shop_name, shop_location = texts[i], texts[i + 1]
             break
+            
     for t in texts:
         if t in [price, sold, shop_name, shop_location]: continue
         if len(t) >= 4:
             product_name = t
             break
+            
     return {"product_name": product_name, "price": price, "sold": sold, "shop_name": shop_name, "shop_location": shop_location}
 
 class TokopediaGeoScraper:
     def __init__(self, callback=None, stop_check=None):
         self.log_callback = callback
         self.stop_check = stop_check
-        with open(GEOJSON_FILE, "r", encoding="utf-8") as f:
-            self.gj = json.load(f)
+        try:
+            with open(GEOJSON_FILE, "r", encoding="utf-8") as f:
+                self.gj = json.load(f)
+        except Exception as e:
+            self.log(f"Peringatan: Gagal memuat {GEOJSON_FILE}: {e}")
+            self.gj = {}
 
     def log(self, msg):
         if self.log_callback: self.log_callback(msg)
@@ -105,206 +107,242 @@ class TokopediaGeoScraper:
                 except: pass
         return None
 
-    def safe_click(self, driver, by, selector, timeout=8):
-        """Fungsi klik cerdas versi Selenium"""
-        try:
-            el = WebDriverWait(driver, timeout).until(EC.presence_of_element_located((by, selector)))
-            driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", el)
-            time.sleep(1)
-            driver.execute_script("arguments[0].click();", el)
-            return True
-        except:
-            return False
+    def extract_tokopedia_shops(self, keyword, p):
+        unique_shops = set()
+        
+        # Playwright Anti-Bot dengan Edge
+        browser = p.chromium.launch(
+            headless=False, 
+            channel="msedge", 
+            args=["--start-maximized", "--disable-blink-features=AutomationControlled"]
+        )
 
-    def scroll_and_load_more(self, driver, max_rounds=50):
-        self.log("Memulai simulasi scroll ke bawah untuk memuat produk...")
-        
-        last_item_count = 0
-        no_change_count = 0
-        
-        for i in range(max_rounds):
-            if self.is_stopped(): break
-            
-            # Hitung jumlah produk yang ada di layar saat ini
-            current_items = driver.find_elements(By.CSS_SELECTOR, 'img[alt="product-image"]')
-            current_item_count = len(current_items)
-            
-            # Evaluasi apakah ada penambahan produk baru
-            if current_item_count == last_item_count and current_item_count > 0:
-                no_change_count += 1
-                if no_change_count >= 2:
-                    self.log(f"Mentok! Total produk berhenti di {current_item_count} item.")
-                    break
+        context = browser.new_context(no_viewport=True) 
+        context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get:()=>undefined})")
+        page = context.new_page()
+
+        try:
+            self.log(f"Membuka browser... Mencari di Tokopedia: {keyword}")
+            page.goto("https://www.tokopedia.com/", wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(3000)
+
+            # Pencarian
+            search_box = page.locator('input[type="search"]').first
+            if search_box.is_visible():
+                search_box.click(force=True)
+                search_box.fill(keyword)
+                search_box.press("Enter")
+                page.wait_for_timeout(5000)
             else:
-                if current_item_count > last_item_count:
-                    self.log(f"Produk termuat: {current_item_count} item...")
-                last_item_count = current_item_count
-                no_change_count = 0 
+                self.log("⚠️ Kotak pencarian tidak ditemukan.")
+                return []
+
+            # Menerapkan Filter Lokasi
+            self.log(f"Menerapkan Filter Lokasi ({FILTER_CTX})...")
+            filter_btn = page.locator('[data-testid="lnkSRPSeeAllLocFilter"]').first
+            if filter_btn.is_visible():
+                filter_btn.click(force=True)
+                page.wait_for_timeout(2000)
+
+                # Ketik "Kab. Bantul"
+                loc_input = page.locator('input[aria-label="Cari lokasi"]').first
+                if loc_input.is_visible():
+                    loc_input.fill(FILTER_CTX)
+                    page.wait_for_timeout(2000)
+
+                # Pilih "Kab. Bantul"
+                target_xpath = f'//*[contains(text(),"{FILTER_CTX}")]/ancestor::*[self::label or self::div or self::li][1]'
+                target_lbl = page.locator(target_xpath).first
+                if target_lbl.is_visible():
+                    target_lbl.click(force=True)
+                    page.wait_for_timeout(1000)
+
+                # Terapkan
+                apply_btn = page.locator('[data-testid="btnSRPApplySeeAllFilter"]').first
+                if apply_btn.is_visible():
+                    apply_btn.click(force=True)
+                    page.wait_for_timeout(5000)
+            else:
+                self.log("Gagal membuka menu filter lokasi. Mencoba mengambil data yang ada...")
+
+            # Scroll & Muat Lebih Banyak (Auto Stop saat Mentok)
+            self.log("Memulai simulasi scroll ke bawah untuk memuat produk...")
+            last_item_count = 0
+            no_change_count = 0
             
-            # Scroll perlahan ke bawah (mirip mouse wheel)
-            for _ in range(3):
-                driver.execute_script("window.scrollBy(0, 1500);")
-                time.sleep(0.8)
+            for i in range(50):
+                if self.is_stopped(): break
                 
-            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(2)
-            
-            # Cari dan klik tombol "Muat Lebih Banyak"
-            try:
+                # Hitung produk dari jumlah gambar
+                current_item_count = page.locator('img[alt="product-image"]').count()
+                
+                if current_item_count == last_item_count and current_item_count > 0:
+                    no_change_count += 1
+                    if no_change_count >= 2:
+                        self.log(f"Mentok! Total produk berhenti di {current_item_count} item.")
+                        break
+                else:
+                    if current_item_count > last_item_count:
+                        self.log(f"Produk termuat: {current_item_count} item...")
+                    last_item_count = current_item_count
+                    no_change_count = 0 
+                
+                # Scroll perlahan ke bawah
+                for _ in range(3):
+                    page.mouse.wheel(0, 1500)
+                    page.wait_for_timeout(800)
+                    
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                page.wait_for_timeout(2000)
+                
+                # Cari dan klik tombol "Muat Lebih Banyak"
                 btn_xpath = '//button[contains(translate(text(), "MUAT LEBIH BANYAK", "muat lebih banyak"), "muat lebih banyak")]'
-                btn = driver.find_element(By.XPATH, btn_xpath)
-                if btn.is_displayed():
+                load_more = page.locator(btn_xpath).first
+                if load_more.is_visible():
                     self.log(f"Klik 'Muat Lebih Banyak' #{i+1}")
-                    self.safe_click(driver, By.XPATH, btn_xpath)
-                    time.sleep(3.5)
-            except:
-                pass
+                    load_more.click(force=True)
+                    page.wait_for_timeout(3500)
 
-    def scrape_tokopedia_logic(self, keyword):
-        rows = []
-        
-        # Setup Selenium Chrome Anti-Bot
-        options = webdriver.ChromeOptions()
-        options.add_argument("--start-maximized")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('useAutomationExtension', False)
-        
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        
-        try:
-            self.log(f"Mencari produk: {keyword}")
-            driver.get("https://www.tokopedia.com")
-            time.sleep(3)
-
-            # Kotak Pencarian
-            try:
-                search_box = WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="search"]')))
-                search_box.send_keys(keyword)
-                search_box.send_keys(Keys.ENTER)
-                time.sleep(5)
-            except Exception as e:
-                self.log(f"Gagal menemukan kotak pencarian: {e}")
-                driver.quit()
-                return pd.DataFrame()
-
-            self.log("Menerapkan Filter Lokasi (Kab. Bantul)...")
-            
-            # Klik 'Lihat Semua Lokasi'
-            if not self.safe_click(driver, By.CSS_SELECTOR, '[data-testid="lnkSRPSeeAllLocFilter"]'): 
-                self.log("Gagal membuka filter lokasi. Menyimpan data yang ada...")
-                driver.quit()
-                return pd.DataFrame()
-
-            # Ketik "Kab. Bantul"
-            try:
-                loc_input = WebDriverWait(driver, 8).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input[aria-label="Cari lokasi"]')))
-                loc_input.send_keys("Kab. Bantul")
-                time.sleep(2)
-            except:
-                pass
-            
-            # Pilih "Kab. Bantul" dari hasil pencarian filter
-            target_xpath = '//*[contains(text(),"Kab. Bantul")]/ancestor::*[self::label or self::div or self::li][1]'
-            self.safe_click(driver, By.XPATH, target_xpath)
-            time.sleep(1)
-            
-            # Terapkan
-            self.safe_click(driver, By.CSS_SELECTOR, '[data-testid="btnSRPApplySeeAllFilter"]')
-            time.sleep(5)
-
-            # Eksekusi fungsi Scroll Mentok
-            self.scroll_and_load_more(driver)
-
+            # Scraping Kartu Tokopedia
             self.log("Scraping semua data yang sudah terbuka...")
-            product_imgs = driver.find_elements(By.CSS_SELECTOR, 'img[alt="product-image"]')
-            seen_cards = set()
-            
-            for img in product_imgs:
+            imgs = page.locator('img[alt="product-image"]').all()
+            for img in imgs:
                 if self.is_stopped(): break
                 try:
-                    # Temukan bungkus terluar (card) dari produk ini
-                    card = img.find_element(By.XPATH, "./ancestor::div[contains(., 'Kab. Bantul')][1]")
-                    
-                    # Ekstrak semua teks di dalam card
-                    spans = card.find_elements(By.CSS_SELECTOR, "span")
-                    texts = [span.get_attribute("innerText") for span in spans if span.get_attribute("innerText")]
-                    
-                    parsed = parse_card_texts(texts)
-                    
-                    if not parsed["shop_name"] or "bantul" not in parsed["shop_location"].lower(): continue
-
-                    shop_name = clean_text(parsed["shop_name"])
-                    row_key = (normalize_name(shop_name), normalize_name(parsed["product_name"]))
-                    
-                    if row_key in seen_cards: continue
-                    seen_cards.add(row_key)
-
-                    rows.append({
-                        "shop_name": shop_name,
-                        "shop_location": parsed["shop_location"],
-                        "product_name": parsed["product_name"],
-                        "price": parsed["price"],
-                        "sold": parsed["sold"]
-                    })
-                    self.log(f"Ditemukan: {shop_name}")
+                    # Ambil kartu produk yang lokasinya Bantul
+                    card = img.locator("xpath=./ancestor::div[contains(translate(., 'BANTUL', 'bantul'), 'bantul')][1]").first
+                    if card.is_visible():
+                        texts = card.locator("span").all_inner_texts()
+                        parsed = parse_card_texts(texts)
+                        
+                        shop_name = clean_text(parsed["shop_name"])
+                        if shop_name and "bantul" in parsed["shop_location"].lower():
+                            if shop_name not in unique_shops:
+                                unique_shops.add(shop_name)
+                                self.log(f"Ditemukan Toko: {shop_name}")
                 except: pass
-                
+
         finally:
-            driver.quit()
+            browser.close()
             
-        return pd.DataFrame(rows).drop_duplicates(subset=["shop_name"])
+        return list(unique_shops)
+
+    def enrich_google_maps(self, unique_shops, keyword, p):
+        self.log(f"\nTotal toko unik: {len(unique_shops)}. Memulai pengayaan Maps...")
+        
+        # Buka Browser Maps secara Visual (Headless=False)
+        browser = p.chromium.launch(headless=False, channel="msedge", args=["--start-maximized"])
+        context = browser.new_context(no_viewport=True)
+        page = context.new_page()
+        
+        final_rows = []
+
+        try:
+            for shop in unique_shops:
+                if self.is_stopped(): break
+                
+                # QUERY GOOGLE MAPS = {NAMA TOKO} YOGYAKARTA (Sesuai permintaan)
+                maps_query = f"{shop} {MAPS_CTX}"
+                self.log(f"Mencari di Maps: {maps_query}")
+                
+                url = "https://www.google.com/maps/search/" + urllib.parse.quote(maps_query)
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                page.wait_for_timeout(4000)
+                
+                try:
+                    place_links = page.locator('a[href*="/place/"]').all()
+                    if place_links:
+                        place_links[0].click(force=True)
+                        page.wait_for_timeout(3000)
+                except: pass
+
+                maps_url = page.url
+                
+                maps_place_name = ""
+                try:
+                    h1 = page.locator("h1").first
+                    if h1.is_visible():
+                        maps_place_name = clean_text(h1.text_content())
+                    else: maps_place_name = shop
+                except: maps_place_name = shop
+
+                maps_address = ""
+                try:
+                    btn_addr = page.locator('button[data-item-id="address"]').first
+                    if btn_addr.is_visible():
+                        maps_address = btn_addr.get_attribute("aria-label").replace("Alamat: ", "").strip()
+                        if not maps_address:
+                            maps_address = clean_text(btn_addr.text_content())
+                except: pass
+
+                phone = ""
+                try:
+                    btn_phone = page.locator('button[data-item-id^="phone:tel:"]').first
+                    if btn_phone.is_visible():
+                        phone = btn_phone.get_attribute("aria-label").replace("Nomor telepon: ", "").strip()
+                        if not phone:
+                            phone = clean_text(btn_phone.text_content())
+                except: pass
+
+                m = re.search(r"@(-?\d+\.\d+),(-?\d+\.\d+),", maps_url)
+                lat, lng = (float(m.group(1)), float(m.group(2))) if m else (None, None)
+                
+                geo_info = self.find_geojson_match(lat, lng)
+                
+                if lat is None:
+                    status = "NOT_FOUND"
+                else:
+                    status = "DALAM_RING" if geo_info else "DILUAR_RING"
+                
+                similarity = SequenceMatcher(None, shop.lower(), maps_place_name.lower()).ratio()
+                if similarity >= 0.8: match_quality = "TINGGI"
+                elif similarity >= 0.5: match_quality = "SEDANG"
+                else: match_quality = "RENDAH"
+
+                final_rows.append({
+                    "shop_name": shop,
+                    "maps_query": maps_query,
+                    "maps_place_name": maps_place_name,
+                    "maps_address": maps_address,
+                    "name_similarity": round(similarity, 4),
+                    "match_quality": match_quality,
+                    "latitude": lat,
+                    "longitude": lng,
+                    "phone": phone,
+                    "website": "",
+                    "email": "",
+                    "maps_url": maps_url,
+                    "idsls": geo_info["idsls"] if geo_info else "",
+                    "nama_kecamatan": geo_info["nama_kecamatan"] if geo_info else "",
+                    "nama_desa": geo_info["nama_desa"] if geo_info else "",
+                    "nama_sls": geo_info["nama_sls"] if geo_info else "",
+                    "status": status
+                })
+                self.log(f"Maps: {shop} -> {status} | Sim: {round(similarity, 2)} | Telp: {phone}")
+
+        finally:
+            browser.close()
+
+        # Format Excel Standar 17 Kolom
+        output_df = pd.DataFrame(final_rows, columns=[
+            "shop_name", "maps_query", "maps_place_name", "maps_address", 
+            "name_similarity", "match_quality", "latitude", "longitude", 
+            "phone", "website", "email", "maps_url", 
+            "idsls", "nama_kecamatan", "nama_desa", "nama_sls", "status"
+        ])
+        
+        output_file = f"{OUTPUT_PREFIX}_{sanitize_filename(keyword)}_enriched.xlsx"
+        output_df.to_excel(output_file, index=False)
+        self.log(f"✅ Selesai! File disimpan: {output_file}")
 
     def run(self, keyword):
-        df = self.scrape_tokopedia_logic(keyword)
-        if df.empty:
-            self.log("Tidak ada data ditemukan.")
-            return
-
-        self.log(f"Total toko unik ditemukan: {len(df)}. Memulai pengayaan Google Maps...")
-        options = webdriver.ChromeOptions()
-        options.add_argument("--headless")
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-
-        for i, row in df.iterrows():
-            if self.is_stopped(): break
-            shop = row["shop_name"]
-            driver.get("https://www.google.com/maps/search/" + urllib.parse.quote(f"{shop}, {CTX}"))
-            time.sleep(4)
+        with sync_playwright() as p:
+            unique_shops = self.extract_tokopedia_shops(keyword, p)
+            if self.is_stopped() or not unique_shops:
+                self.log("Tidak ada data untuk dilanjutkan ke Maps.")
+                return
             
-            try:
-                place_links = driver.find_elements(By.CSS_SELECTOR, 'a[href*="/place/"]')
-                if place_links:
-                    place_links[0].click()
-                    time.sleep(3)
-            except: pass
-
-            maps_url = driver.current_url
-            alamat_lengkap = ""
-            try:
-                el_address = driver.find_element(By.CSS_SELECTOR, 'button[data-item-id="address"]')
-                alamat_lengkap = el_address.text.strip()
-            except: pass
-
-            m = re.search(r"@(-?\d+\.\d+),(-?\d+\.\d+),", maps_url)
-            lat, lng = (float(m.group(1)), float(m.group(2))) if m else (None, None)
-            
-            geo_info = self.find_geojson_match(lat, lng)
-            
-            df.at[i, "latitude"] = lat
-            df.at[i, "longitude"] = lng
-            df.at[i, "idsls"] = geo_info["idsls"] if geo_info else ""
-            df.at[i, "status"] = "DALAM_RING" if geo_info else "DILUAR_RING"
-            df.at[i, "alamat_lengkap"] = alamat_lengkap
-            df.at[i, "link_maps"] = maps_url
-            
-            self.log(f"Maps: {shop} -> {df.at[i, 'status']} | {alamat_lengkap[:30]}...")
-
-        driver.quit()
-        output_file = f"{OUTPUT_PREFIX}_{sanitize_filename(keyword)}_enriched.xlsx"
-        df.to_excel(output_file, index=False)
-        self.log(f"✅ Selesai! File disimpan: {output_file}")
+            self.enrich_google_maps(list(unique_shops), keyword, p)
 
 def scrape_tokopedia(keyword, callback=None, stop_check=None):
     scraper = TokopediaGeoScraper(callback=callback, stop_check=stop_check)
