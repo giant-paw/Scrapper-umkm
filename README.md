@@ -1,4 +1,13 @@
-Membuat exe :
+Update 2.0 :
+1.  Fixing Bug maps_place_name excel
+2.  Bar progress persentase scrapping
+3.  spesifik 'yogyakarta' di pencarian maps. contoh {nama toko} + 'yogyakarta'. untuk fokus pencarian toko di Yogyakarta bukan cabang lain provinsi
+4.  fixing minor bug
+5.  Excel Tersimpan di folder yang sama (belum dirapikan untuk masuk ke folder data)
+
+*Note: Khusus Blibli tidak ada filter 'Bantul' sehingga menggunakan 'Yogyakarta', Tokopedia dan Olx filter tetap 'Bantul'. Continuously tracking down and resolving bugs 
+
+Cara Membuat exe :
 
 1. cek apakah sudah terinstal pyinstaller : 
   'pip install pyinstaller'
