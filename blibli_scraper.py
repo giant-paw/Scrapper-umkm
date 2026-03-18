@@ -142,7 +142,7 @@ class BlibliGeoScraper:
                         self.log(f"⚠️ Lokasi '{CTX}' tidak tersedia untuk produk ini.")
                         close_btn = modal.locator("button.blu-modal__close, button[class*='close']").first
                         if close_btn.is_visible():
-                            close_btn.click(force=True) # Tutup pop-up agar tidak nyangkut
+                            close_btn.click(force=True)
                         return False
                 else:
                     direct_check = target_group.locator("label").filter(has_text=re.compile(CTX, re.IGNORECASE)).first
@@ -189,7 +189,6 @@ class BlibliGeoScraper:
 
             self._handle_location_popup(page)
             
-            # LOGIKA PENGECEKAN FILTER BARU
             filter_success = False
             for _ in range(3):
                 if self.is_stopped(): break
@@ -199,7 +198,7 @@ class BlibliGeoScraper:
             
             if not filter_success:
                 self.log(f"🛑 Menghentikan Scraping: Produk tidak tersedia di {CTX}.")
-                return [] # BATALKAN PROSES JIKA LOKASI KOSONG
+                return [] 
             
             current_page = 1
             max_pages = 10
@@ -238,19 +237,22 @@ class BlibliGeoScraper:
                         if next_page_btn.is_visible():
                             next_page_btn.scroll_into_view_if_needed()
                             next_page_btn.click(force=True)
-                            self.log(f"Pindah ke halaman {next_page_str}...")
                             page.wait_for_timeout(4000)
                             current_page += 1
                         else:
-                            self.log("Mentok! Halaman selanjutnya tidak ditemukan.")
                             break
                     except Exception: break
                 else: break
 
             total_cards = len(cards_data)
             self.log(f"Mengekstrak {total_cards} URL untuk menemukan Nama Toko...")
+            
             for idx, item in enumerate(cards_data):
                 if self.is_stopped(): break
+                
+                # ---> PERBAIKAN: Log Progress diletakkan di LUAR kondisi agar selalu tereksekusi <---
+                self.log(f"[{idx+1}/{total_cards}] Memproses URL produk...")
+                
                 try:
                     detail_page.goto(item["url"], wait_until="domcontentloaded", timeout=40000)
                     detail_page.wait_for_timeout(2000)
@@ -272,8 +274,7 @@ class BlibliGeoScraper:
                         
                     if shop_name not in unique_shops:
                         unique_shops.add(shop_name)
-                        # TAMBAHAN: Logika progress bar
-                        self.log(f"[{idx+1}/{total_cards}] Ditemukan Toko: {shop_name}")
+                        self.log(f"-> Ditemukan Toko Unik: {shop_name}")
                 except: pass
 
         finally:
@@ -296,6 +297,8 @@ class BlibliGeoScraper:
                 if self.is_stopped(): break
                 
                 maps_query = f"{shop} {CTX}"
+                
+                # ---> PERBAIKAN: Log Progress Maps agar bar bergerak mulus <---
                 self.log(f"[{idx+1}/{total_shops}] Mencari di Maps: {maps_query}")
                 
                 url = "https://www.google.com/maps/search/" + urllib.parse.quote(maps_query)
@@ -373,8 +376,7 @@ class BlibliGeoScraper:
                     "nama_sls": geo_info["nama_sls"] if geo_info else "",
                     "status": status
                 })
-                # TAMBAHAN: Progress Bar Trigger
-                self.log(f"[{idx+1}/{total_shops}] Maps: {shop} -> {status} | Sim: {round(similarity, 2)}")
+                self.log(f"-> Hasil Maps: {shop} | Status: {status}")
 
         finally:
             browser.close()
@@ -386,10 +388,7 @@ class BlibliGeoScraper:
             "idsls", "nama_kecamatan", "nama_desa", "nama_sls", "status"
         ])
         
-        if not os.path.exists("data"):
-            os.makedirs("data", exist_ok=True)
-            
-        output_file = os.path.join("data", f"{OUTPUT_PREFIX}_{sanitize_filename(keyword)}_enriched.xlsx")
+        output_file = os.path.join(f"{sanitize_filename(keyword)}_{OUTPUT_PREFIX}_enriched.xlsx")
         output_df.to_excel(output_file, index=False)
         self.log(f"✅ Selesai! File disimpan: {output_file}")
 

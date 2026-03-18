@@ -36,7 +36,6 @@ def parse_card_texts(texts):
         if not price and t.lower().startswith("rp"): price = t
         if not sold and "terjual" in t.lower(): sold = t
         
-    # Karena kita filter Bantul di Tokopedia, kita cari lokasi Bantul
     for i in range(len(texts) - 1):
         if "bantul" in texts[i + 1].lower():
             shop_name, shop_location = texts[i], texts[i + 1]
@@ -111,7 +110,6 @@ class TokopediaGeoScraper:
     def extract_tokopedia_shops(self, keyword, p):
         unique_shops = set()
         
-        # Playwright Anti-Bot dengan Edge
         browser = p.chromium.launch(
             headless=False, 
             channel="msedge", 
@@ -127,7 +125,6 @@ class TokopediaGeoScraper:
             page.goto("https://www.tokopedia.com/", wait_until="domcontentloaded", timeout=60000)
             page.wait_for_timeout(3000)
 
-            # Pencarian
             search_box = page.locator('input[type="search"]').first
             if search_box.is_visible():
                 search_box.click(force=True)
@@ -138,27 +135,23 @@ class TokopediaGeoScraper:
                 self.log("⚠️ Kotak pencarian tidak ditemukan.")
                 return []
 
-            # Menerapkan Filter Lokasi
             self.log(f"Menerapkan Filter Lokasi ({FILTER_CTX})...")
             filter_btn = page.locator('[data-testid="lnkSRPSeeAllLocFilter"]').first
             if filter_btn.is_visible():
                 filter_btn.click(force=True)
                 page.wait_for_timeout(2000)
 
-                # Ketik "Kab. Bantul"
                 loc_input = page.locator('input[aria-label="Cari lokasi"]').first
                 if loc_input.is_visible():
                     loc_input.fill(FILTER_CTX)
                     page.wait_for_timeout(2000)
 
-                # Pilih "Kab. Bantul"
                 target_xpath = f'//*[contains(text(),"{FILTER_CTX}")]/ancestor::*[self::label or self::div or self::li][1]'
                 target_lbl = page.locator(target_xpath).first
                 if target_lbl.is_visible():
                     target_lbl.click(force=True)
                     page.wait_for_timeout(1000)
 
-                # Terapkan
                 apply_btn = page.locator('[data-testid="btnSRPApplySeeAllFilter"]').first
                 if apply_btn.is_visible():
                     apply_btn.click(force=True)
@@ -166,7 +159,6 @@ class TokopediaGeoScraper:
             else:
                 self.log("Gagal membuka menu filter lokasi. Mencoba mengambil data yang ada...")
 
-            # Scroll & Muat Lebih Banyak (Auto Stop saat Mentok)
             self.log("Memulai simulasi scroll ke bawah untuk memuat produk...")
             last_item_count = 0
             no_change_count = 0
@@ -174,7 +166,6 @@ class TokopediaGeoScraper:
             for i in range(50):
                 if self.is_stopped(): break
                 
-                # Hitung produk dari jumlah gambar
                 current_item_count = page.locator('img[alt="product-image"]').count()
                 
                 if current_item_count == last_item_count and current_item_count > 0:
@@ -188,7 +179,6 @@ class TokopediaGeoScraper:
                     last_item_count = current_item_count
                     no_change_count = 0 
                 
-                # Scroll perlahan ke bawah
                 for _ in range(3):
                     page.mouse.wheel(0, 1500)
                     page.wait_for_timeout(800)
@@ -196,7 +186,6 @@ class TokopediaGeoScraper:
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 page.wait_for_timeout(2000)
                 
-                # Cari dan klik tombol "Muat Lebih Banyak"
                 btn_xpath = '//button[contains(translate(text(), "MUAT LEBIH BANYAK", "muat lebih banyak"), "muat lebih banyak")]'
                 load_more = page.locator(btn_xpath).first
                 if load_more.is_visible():
@@ -204,16 +193,18 @@ class TokopediaGeoScraper:
                     load_more.click(force=True)
                     page.wait_for_timeout(3500)
 
-            # Scraping Kartu Tokopedia
             self.log("Scraping semua data yang sudah terbuka...")
             imgs = page.locator('img[alt="product-image"]').all()
 
             total_imgs = len(imgs)
             
-            for img in imgs:
+            for idx, img in enumerate(imgs):
                 if self.is_stopped(): break
+                
+                # --- PERBAIKAN: Log Progress diletakkan di LUAR try-except agar selalu tereksekusi ---
+                self.log(f"[{idx+1}/{total_imgs}] Memindai produk...")
+                
                 try:
-                    # Ambil kartu produk yang lokasinya Bantul
                     card = img.locator("xpath=./ancestor::div[contains(translate(., 'BANTUL', 'bantul'), 'bantul')][1]").first
                     if card.is_visible():
                         texts = card.locator("span").all_inner_texts()
@@ -223,7 +214,7 @@ class TokopediaGeoScraper:
                         if shop_name and "bantul" in parsed["shop_location"].lower():
                             if shop_name not in unique_shops:
                                 unique_shops.add(shop_name)
-                                self.log(f"[{idx+1}/{total_imgs}] Ditemukan Toko: {shop_name}")
+                                self.log(f"-> Ditemukan Toko Unik: {shop_name}")
                 except: pass
 
         finally:
@@ -232,9 +223,9 @@ class TokopediaGeoScraper:
         return list(unique_shops)
 
     def enrich_google_maps(self, unique_shops, keyword, p):
-        self.log(f"\nTotal toko unik: {len(unique_shops)}. Memulai pengayaan Maps...")
+        total_shops = len(unique_shops)
+        self.log(f"\nTotal toko unik: {total_shops}. Memulai pengayaan Maps...")
         
-        # Buka Browser Maps secara Visual (Headless=False)
         browser = p.chromium.launch(headless=False, channel="msedge", args=["--start-maximized"])
         context = browser.new_context(no_viewport=True)
         page = context.new_page()
@@ -242,12 +233,13 @@ class TokopediaGeoScraper:
         final_rows = []
 
         try:
-            for shop in unique_shops:
+            for idx, shop in enumerate(unique_shops):
                 if self.is_stopped(): break
                 
-                # QUERY GOOGLE MAPS = {NAMA TOKO} YOGYAKARTA
                 maps_query = f"{shop} {MAPS_CTX}"
-                self.log(f"Mencari di Maps: {maps_query}")
+                
+                # --- PERBAIKAN: Log Progress Maps agar bar bergerak mulus ---
+                self.log(f"[{idx+1}/{total_shops}] Mencari di Maps: {maps_query}")
                 
                 url = "https://www.google.com/maps/search/" + urllib.parse.quote(maps_query)
                 page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -264,7 +256,6 @@ class TokopediaGeoScraper:
                 
                 maps_place_name = ""
                 try:
-                    # PERBAIKAN: Penargetan spesifik ke class "DUwDvf" agar tidak menangkap text "Hasil"
                     h1 = page.locator("h1.DUwDvf").first
                     if h1.is_visible(timeout=3000):
                         maps_place_name = clean_text(h1.text_content())
@@ -330,14 +321,13 @@ class TokopediaGeoScraper:
         finally:
             browser.close()
 
-        # Format Excel Standar 17 Kolom
         output_df = pd.DataFrame(final_rows, columns=[
             "shop_name", "maps_query", "maps_place_name", "maps_address", 
             "name_similarity", "match_quality", "latitude", "longitude", 
             "phone", "website", "email", "maps_url", 
             "idsls", "nama_kecamatan", "nama_desa", "nama_sls", "status"
         ])
-           
+        
         output_file = os.path.join(f"{sanitize_filename(keyword)}_{OUTPUT_PREFIX}_enriched.xlsx")
         output_df.to_excel(output_file, index=False)
         self.log(f"✅ Selesai! File disimpan: {output_file}")
