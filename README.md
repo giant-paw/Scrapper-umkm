@@ -2,8 +2,9 @@ Update 2.0 :
 1.  Fixing Bug maps_place_name excel
 2.  Bar progress persentase scrapping
 3.  spesifik 'yogyakarta' di pencarian maps. contoh {nama toko} + 'yogyakarta'. untuk fokus pencarian toko di Yogyakarta bukan cabang lain provinsi
-4.  fixing minor bug
-5.  Excel Tersimpan di folder yang sama (belum dirapikan untuk masuk ke folder data)
+4.  Kasus unik Blibli ( Sudah Diperbaiki ), jika barang yang dicari tidak ada di yogya. filter nya tidak ada pilihan jogja dan dia tetap scrapping padahal di kota lain. Contoh: coba cari 'dvr' di Blibli.com dan ketik 'Yogyakarta', tidak ada Yogyakarta karena tidak ada penjual disitu. jadi langsung di cut disitu tidak scrapping kota lain
+5.  fixing minor bug
+6.  Excel Tersimpan di folder yang sama (belum dirapikan untuk masuk ke folder data)
 
 *Note: Khusus Blibli tidak ada filter 'Bantul' sehingga menggunakan 'Yogyakarta', Tokopedia dan Olx filter tetap 'Bantul'. Continuously tracking down and resolving bugs 
 
