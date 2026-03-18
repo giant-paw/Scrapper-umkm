@@ -1,3 +1,4 @@
+import os
 import time
 import re
 import urllib.parse
@@ -307,9 +308,12 @@ class ShopeeGeoScraper:
         self.log("\n--- Memulai Pencarian Google Maps ---")
         df = self.enrich_google_maps(df)
 
-        output_file = f"{OUTPUT_PREFIX}_{sanitize_filename(keyword)}_bantul_enriched.xlsx"
-        df.to_excel(output_file, index=False)
-        self.log(f"\n✅ Data disimpan di: {output_file}")
+        if not os.path.exists("data"):
+            os.makedirs("data")
+        
+        output_file = "data", f"{sanitize_filename(keyword)}_{OUTPUT_PREFIX}_enriched.xlsx"
+        output_df.to_excel(output_file, index=False)
+        self.log(f"✅ Selesai! File disimpan: {output_file}")
 
 # ================= ENTRY POINT UNTUK GUI =================
 def scrape_shopee(keyword, callback=None, stop_check=None):

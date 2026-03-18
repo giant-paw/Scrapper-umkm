@@ -8,17 +8,18 @@ import multiprocessing
 
 from blibli_scraper import scrape_blibli
 from tokopedia_scraper import scrape_tokopedia 
-from shopee_scraper import scrape_shopee # <-- IMPORT SHOPEE TAMBAHAN BARU
+from shopee_scraper import scrape_shopee 
 
-# --- PENGATURAN TEMA ---
-ctk.set_appearance_mode("System")
+# --- PENGATURAN TEMA VERSI 2.0 ---
+# Memaksa tema menjadi "Light" (Terang) secara permanen
+ctk.set_appearance_mode("Light")
 ctk.set_default_color_theme("blue")
 
 class MultiScraperApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("Geo-Scraper E-Commerce Pro")
+        self.title("Geo-Scraper E-Commerce Pro v2.0")
         self.geometry("850x600")
         self.minsize(800, 500)
 
@@ -30,7 +31,7 @@ class MultiScraperApp(ctk.CTk):
         self.frame_header = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_header.grid(row=0, column=0, padx=20, pady=(20, 5), sticky="ew")
         
-        self.label_title = ctk.CTkLabel(self.frame_header, text="E-Commerce Geo-Scraper", font=ctk.CTkFont(size=24, weight="bold"))
+        self.label_title = ctk.CTkLabel(self.frame_header, text="E-Commerce Geo-Scraper v2.0", font=ctk.CTkFont(size=24, weight="bold"), text_color="#1F538D")
         self.label_title.pack()
         self.label_subtitle = ctk.CTkLabel(self.frame_header, text="Otomatisasi Ekstraksi Data & Pemetaan Spasial", text_color="gray")
         self.label_subtitle.pack()
@@ -70,14 +71,16 @@ class MultiScraperApp(ctk.CTk):
         self.frame_status.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="ew")
         self.frame_status.grid_columnconfigure(1, weight=1)
 
-        self.label_status = ctk.CTkLabel(self.frame_status, text="🟢 Status: Siap digunakan.", font=ctk.CTkFont(weight="bold"))
+        # Warna text default disesuaikan untuk tema terang
+        self.label_status = ctk.CTkLabel(self.frame_status, text="🟢 Status: Siap digunakan.", font=ctk.CTkFont(weight="bold"), text_color="black")
         self.label_status.grid(row=0, column=0, padx=5, sticky="w")
 
         self.progress_bar = ctk.CTkProgressBar(self.frame_status, mode="indeterminnate")
         self.progress_bar.grid(row=0, column=1, padx=15, sticky="ew")
         self.progress_bar.set(0)
 
-        self.textbox_log = ctk.CTkTextbox(self.frame_log, font=ctk.CTkFont(family="Consolas", size=12))
+        # Warna log disesuaikan agar kontras dengan tema terang
+        self.textbox_log = ctk.CTkTextbox(self.frame_log, font=ctk.CTkFont(family="Consolas", size=12), fg_color="#F0F0F0", text_color="black")
         self.textbox_log.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
         self.textbox_log.insert("0.0", "Sistem siap. Silakan masukkan kata kunci, pilih sumber, dan klik Mulai.\n")
         self.textbox_log.configure(state="disabled")
@@ -101,7 +104,7 @@ class MultiScraperApp(ctk.CTk):
             self.textbox_log.configure(state="disabled")
         self.after(0, update_ui)
 
-    def set_status(self, teks, status_color="white"):
+    def set_status(self, teks, status_color="black"):
         self.after(0, lambda: self.label_status.configure(text=teks, text_color=status_color))
 
     def clear_log(self):
@@ -111,14 +114,20 @@ class MultiScraperApp(ctk.CTk):
         self.textbox_log.configure(state="disabled")
 
     def buka_folder(self):
-        current_folder = os.getcwd()
+        # Arahkan langsung ke folder 'data'
+        target_folder = os.path.join(os.getcwd(), "data")
+        
+        # Buat foldernya jika ternyata belum ada
+        if not os.path.exists(target_folder):
+            os.makedirs(target_folder)
+            
         try:
             if sys.platform == "win32":
-                os.startfile(current_folder)
+                os.startfile(target_folder)
             elif sys.platform == "darwin":
-                subprocess.Popen(["open", current_folder])
+                subprocess.Popen(["open", target_folder])
             else:
-                subprocess.Popen(["xdg-open", current_folder])
+                subprocess.Popen(["xdg-open", target_folder])
         except Exception as e:
             self.tulis_log(f"⚠️ Gagal membuka folder: {e}")
 
@@ -134,7 +143,7 @@ class MultiScraperApp(ctk.CTk):
             return
 
         self.stop_flag = False
-        self.set_status(f"🟡 Status: Mengekstrak dari {sumber}...", "yellow")
+        self.set_status(f"🟡 Status: Mengekstrak dari {sumber}...", "#B8860B") # Dark Goldenrod agar terbaca di tema terang
         
         self.btn_start.configure(state="disabled")
         self.option_sumber.configure(state="disabled")
@@ -172,7 +181,7 @@ class MultiScraperApp(ctk.CTk):
                 self.set_status("🔴 Status: Dibatalkan.", "red")
                 self.tulis_log(f"\n🛑 PROSES DIBATALKAN OLEH PENGGUNA.")
             else:
-                self.set_status("🟢 Status: Selesai!", "#00fa9a")
+                self.set_status("🟢 Status: Selesai!", "green")
                 self.tulis_log(f"\n✅ SELURUH PROSES SELESAI!")
                 
         except Exception as e:

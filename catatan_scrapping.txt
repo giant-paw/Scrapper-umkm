@@ -1,0 +1,12 @@
+catatan scrapping v2.0 (https://github.com/giant-paw/Scrapper-umkm.git) :
+
+1. Nama toko di Tokopedia dengan maps sebener nya mirip dan memang mengarah ke toko tersebut, tapi dianggap similarity rendah. contoh di Tokopedia 'Metoocel Flagship Store' di maps 'Metoocel Plaza Malioboro' dianggap rendah similarity
+
+2. Tokopedia banyak suggestion atau tampilan produk yang seharusnya tidak sesuai keywoard (iklan). Contoh search 'kalkulator' muncul produk produk yang sebenernya tidak berhubungan seperti 'case kulit', 'tempat remote'
+
+3. akurasi ketepatan produk dan toko mungkin lebih baik blibli, karena per card dibuka satu per satu dan nama toko dicari (masih ada masalah similarity)
+
+4. Blibli filter 'Yogyakarta' karena tidak ada filter Bantul
+
+5. Tokopedia, Blibli, Olx pencarian nama toko sudah ditambahi 'yogyakarta'. contoh {nama toko} + 'Yogyakarta' untuk menyempitkan pencarian toko yang ada di Yogyakarta (missal contoh kasus ELS, Tidak scanning Els di provinsi lain)
+
