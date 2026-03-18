@@ -298,11 +298,14 @@ class BlibliGeoScraper:
                 
                 maps_place_name = ""
                 try:
-                    h1 = page.locator("h1").first
-                    if h1.is_visible():
+                    # PERBAIKAN: Gunakan class DUwDvf spesifik agar tidak menangkap teks "Hasil"
+                    h1 = page.locator("h1.DUwDvf").first
+                    if h1.is_visible(timeout=3000):
                         maps_place_name = clean_text(h1.text_content())
-                    else: maps_place_name = shop
-                except: maps_place_name = shop
+                    else: 
+                        maps_place_name = shop
+                except: 
+                    maps_place_name = shop
 
                 maps_address = ""
                 try:
@@ -369,7 +372,7 @@ class BlibliGeoScraper:
             "idsls", "nama_kecamatan", "nama_desa", "nama_sls", "status"
         ])
         
-        output_file = f"{sanitize_filename(keyword)}_{OUTPUT_PREFIX}_enriched.xlsx"
+        output_file = os.path.join(f"{OUTPUT_PREFIX}_{sanitize_filename(keyword)}_enriched.xlsx")
         output_df.to_excel(output_file, index=False)
         self.log(f"✅ Selesai! File disimpan: {output_file}")
 

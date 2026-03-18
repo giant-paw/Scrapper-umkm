@@ -1,3 +1,4 @@
+import os
 import time
 import re
 import json
@@ -241,7 +242,7 @@ class TokopediaGeoScraper:
             for shop in unique_shops:
                 if self.is_stopped(): break
                 
-                # QUERY GOOGLE MAPS = {NAMA TOKO} YOGYAKARTA (Sesuai permintaan)
+                # QUERY GOOGLE MAPS = {NAMA TOKO} YOGYAKARTA
                 maps_query = f"{shop} {MAPS_CTX}"
                 self.log(f"Mencari di Maps: {maps_query}")
                 
@@ -260,11 +261,14 @@ class TokopediaGeoScraper:
                 
                 maps_place_name = ""
                 try:
-                    h1 = page.locator("h1").first
-                    if h1.is_visible():
+                    # PERBAIKAN: Penargetan spesifik ke class "DUwDvf" agar tidak menangkap text "Hasil"
+                    h1 = page.locator("h1.DUwDvf").first
+                    if h1.is_visible(timeout=3000):
                         maps_place_name = clean_text(h1.text_content())
-                    else: maps_place_name = shop
-                except: maps_place_name = shop
+                    else: 
+                        maps_place_name = shop
+                except: 
+                    maps_place_name = shop
 
                 maps_address = ""
                 try:
@@ -330,8 +334,8 @@ class TokopediaGeoScraper:
             "phone", "website", "email", "maps_url", 
             "idsls", "nama_kecamatan", "nama_desa", "nama_sls", "status"
         ])
-        
-        output_file = f"{sanitize_filename(keyword)}_{OUTPUT_PREFIX}_enriched.xlsx"
+           
+        output_file = os.path.join(f"{OUTPUT_PREFIX}_{sanitize_filename(keyword)}_enriched.xlsx")
         output_df.to_excel(output_file, index=False)
         self.log(f"✅ Selesai! File disimpan: {output_file}")
 

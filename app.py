@@ -5,13 +5,12 @@ import os
 import subprocess
 import sys
 import multiprocessing
+import re 
 
 from blibli_scraper import scrape_blibli
 from tokopedia_scraper import scrape_tokopedia 
 from shopee_scraper import scrape_shopee 
 
-# --- PENGATURAN TEMA VERSI 2.0 ---
-# Memaksa tema menjadi "Light" (Terang) secara permanen
 ctk.set_appearance_mode("Light")
 ctk.set_default_color_theme("blue")
 
@@ -69,17 +68,20 @@ class MultiScraperApp(ctk.CTk):
 
         self.frame_status = ctk.CTkFrame(self.frame_log, fg_color="transparent")
         self.frame_status.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="ew")
-        self.frame_status.grid_columnconfigure(1, weight=1)
+        self.frame_status.grid_columnconfigure(1, weight=1) # Agar progress bar melar
 
-        # Warna text default disesuaikan untuk tema terang
         self.label_status = ctk.CTkLabel(self.frame_status, text="🟢 Status: Siap digunakan.", font=ctk.CTkFont(weight="bold"), text_color="black")
         self.label_status.grid(row=0, column=0, padx=5, sticky="w")
 
-        self.progress_bar = ctk.CTkProgressBar(self.frame_status, mode="indeterminnate")
+        # --- PERUBAHAN KE DETERMINATE ---
+        self.progress_bar = ctk.CTkProgressBar(self.frame_status, mode="determinate")
         self.progress_bar.grid(row=0, column=1, padx=15, sticky="ew")
         self.progress_bar.set(0)
 
-        # Warna log disesuaikan agar kontras dengan tema terang
+        # --- TAMBAHAN LABEL PERSENTASE ---
+        self.label_pct = ctk.CTkLabel(self.frame_status, text="0%", font=ctk.CTkFont(weight="bold", size=14), text_color="#1F538D")
+        self.label_pct.grid(row=0, column=2, padx=(0, 10), sticky="e")
+
         self.textbox_log = ctk.CTkTextbox(self.frame_log, font=ctk.CTkFont(family="Consolas", size=12), fg_color="#F0F0F0", text_color="black")
         self.textbox_log.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="nsew")
         self.textbox_log.insert("0.0", "Sistem siap. Silakan masukkan kata kunci, pilih sumber, dan klik Mulai.\n")
@@ -97,6 +99,21 @@ class MultiScraperApp(ctk.CTk):
         self.btn_open_folder.grid(row=0, column=1, sticky="e")
 
     def tulis_log(self, pesan):
+        # --- DETEKSI PERSENTASE DARI TEKS LOG ---
+        # Mencari pola seperti "[1/50]" atau "[12/12]" di dalam kalimat log
+        match = re.search(r'\[(\d+)/(\d+)\]', pesan)
+        if match:
+            try:
+                current = int(match.group(1))
+                total = int(match.group(2))
+                if total > 0:
+                    pct = current / total
+                    # Update bar (0.0 s.d 1.0) dan Teks
+                    self.after(0, lambda: self.progress_bar.set(pct))
+                    self.after(0, lambda: self.label_pct.configure(text=f"{int(pct * 100)}%"))
+            except Exception:
+                pass
+
         def update_ui():
             self.textbox_log.configure(state="normal")
             self.textbox_log.insert("end", f"[{time.strftime('%H:%M:%S')}] {pesan}\n")
@@ -114,10 +131,7 @@ class MultiScraperApp(ctk.CTk):
         self.textbox_log.configure(state="disabled")
 
     def buka_folder(self):
-        # Arahkan langsung ke folder 'data'
         target_folder = os.path.join(os.getcwd(), "data")
-        
-        # Buat foldernya jika ternyata belum ada
         if not os.path.exists(target_folder):
             os.makedirs(target_folder)
             
@@ -143,14 +157,16 @@ class MultiScraperApp(ctk.CTk):
             return
 
         self.stop_flag = False
-        self.set_status(f"🟡 Status: Mengekstrak dari {sumber}...", "#B8860B") # Dark Goldenrod agar terbaca di tema terang
+        self.set_status(f"🟡 Status: Mengekstrak dari {sumber}...", "#B8860B") 
         
+        # Reset progress bar sebelum mulai
+        self.progress_bar.set(0)
+        self.label_pct.configure(text="0%")
+
         self.btn_start.configure(state="disabled")
         self.option_sumber.configure(state="disabled")
         self.entry_keyword.configure(state="disabled")
         self.btn_stop.configure(state="normal") 
-        
-        self.progress_bar.start()
 
         self.tulis_log("-" * 50)
         self.tulis_log(f"🚀 MEMULAI PROSES: '{keyword}' via {sumber}")
@@ -182,6 +198,9 @@ class MultiScraperApp(ctk.CTk):
                 self.tulis_log(f"\n🛑 PROSES DIBATALKAN OLEH PENGGUNA.")
             else:
                 self.set_status("🟢 Status: Selesai!", "green")
+                # Paksa jadi 100% ketika benar-benar selesai
+                self.after(0, lambda: self.progress_bar.set(1.0))
+                self.after(0, lambda: self.label_pct.configure(text="100%"))
                 self.tulis_log(f"\n✅ SELURUH PROSES SELESAI!")
                 
         except Exception as e:
@@ -189,8 +208,6 @@ class MultiScraperApp(ctk.CTk):
             self.tulis_log(f"\n❌ FATAL ERROR: {e}")
             
         finally:
-            self.after(0, self.progress_bar.stop)
-            self.after(0, lambda: self.progress_bar.set(0))
             self.after(0, lambda: self.btn_start.configure(state="normal"))
             self.after(0, lambda: self.option_sumber.configure(state="normal"))
             self.after(0, lambda: self.entry_keyword.configure(state="normal"))
