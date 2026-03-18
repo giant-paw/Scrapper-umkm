@@ -97,7 +97,6 @@ class BlibliGeoScraper:
             pass
 
     def _apply_filter(self, page):
-        """Menerapkan filter menggunakan klik paksa Playwright"""
         self.log(f"Menerapkan filter Lokasi ({CTX})...")
         page.evaluate("window.scrollBy(0, 300)")
         page.wait_for_timeout(1500)
@@ -117,7 +116,6 @@ class BlibliGeoScraper:
                     lihat_semua.click(force=True)
                     self.log("Klik tombol 'Lihat semua' lokasi...")
                     
-                    # Tunggu modal muncul dengan selektor yang lebih fleksibel
                     modal = page.locator("div[class*='filter-desktop-modal'], div[class*='blu-modal']").first
                     modal.wait_for(state="visible", timeout=8000)
                     
@@ -130,15 +128,22 @@ class BlibliGeoScraper:
                         checkbox_label = modal.locator("label.blu-checkbox").filter(has_text=re.compile(CTX, re.IGNORECASE)).first
                         if checkbox_label.is_visible():
                             checkbox_label.click(force=True)
-                            self.log(f"Checkbox {CTX} dicentang!")
                             page.wait_for_timeout(1000)
-
-                    simpan_btn = modal.locator("button.b-primary").filter(has_text=re.compile(r"Simpan|Terapkan", re.IGNORECASE)).first
-                    if simpan_btn.is_visible():
-                        simpan_btn.click(force=True)
-                        self.log(f"Filter {CTX} BERHASIL disimpan.")
-                        page.wait_for_timeout(4000)
-                        return True
+                            
+                            # Cek tombol simpan
+                            simpan_btn = modal.locator("button.b-primary").filter(has_text=re.compile(r"Simpan|Terapkan", re.IGNORECASE)).first
+                            if simpan_btn.is_visible() and not simpan_btn.is_disabled():
+                                simpan_btn.click(force=True)
+                                self.log(f"Filter {CTX} BERHASIL disimpan.")
+                                page.wait_for_timeout(4000)
+                                return True
+                                
+                        # JIKA LOKASI TIDAK DITEMUKAN ATAU TOMBOL SIMPAN DISABLED
+                        self.log(f"⚠️ Lokasi '{CTX}' tidak tersedia untuk produk ini.")
+                        close_btn = modal.locator("button.blu-modal__close, button[class*='close']").first
+                        if close_btn.is_visible():
+                            close_btn.click(force=True) # Tutup pop-up agar tidak nyangkut
+                        return False
                 else:
                     direct_check = target_group.locator("label").filter(has_text=re.compile(CTX, re.IGNORECASE)).first
                     if direct_check.is_visible():
@@ -146,6 +151,9 @@ class BlibliGeoScraper:
                         self.log(f"Filter {CTX} (Langsung) BERHASIL diterapkan.")
                         page.wait_for_timeout(4000)
                         return True
+                    else:
+                        self.log(f"⚠️ Pilihan lokasi '{CTX}' (Langsung) tidak ditemukan.")
+                        return False
         except Exception as e:
             self.log(f"Gagal menerapkan filter otomatis: {e}")
         return False
@@ -153,7 +161,6 @@ class BlibliGeoScraper:
     def extract_blibli_shops(self, keyword, p):
         unique_shops = set()
         
-        # MURNI PLAYWRIGHT: Anti-Blokir Blibli
         browser = p.chromium.launch(
             headless=False, 
             channel="msedge", 
@@ -182,9 +189,17 @@ class BlibliGeoScraper:
 
             self._handle_location_popup(page)
             
+            # LOGIKA PENGECEKAN FILTER BARU
+            filter_success = False
             for _ in range(3):
                 if self.is_stopped(): break
-                if self._apply_filter(page): break
+                if self._apply_filter(page): 
+                    filter_success = True
+                    break
+            
+            if not filter_success:
+                self.log(f"🛑 Menghentikan Scraping: Produk tidak tersedia di {CTX}.")
+                return [] # BATALKAN PROSES JIKA LOKASI KOSONG
             
             current_page = 1
             max_pages = 10
@@ -214,7 +229,6 @@ class BlibliGeoScraper:
                             if url: cards_data.append({"url": url})
                     except: pass
                 
-                # Navigasi halaman yang sangat akurat
                 if current_page < max_pages and not self.is_stopped():
                     try:
                         next_page_str = str(current_page + 1)
@@ -233,7 +247,8 @@ class BlibliGeoScraper:
                     except Exception: break
                 else: break
 
-            self.log(f"Mengekstrak {len(cards_data)} URL untuk menemukan Nama Toko...")
+            total_cards = len(cards_data)
+            self.log(f"Mengekstrak {total_cards} URL untuk menemukan Nama Toko...")
             for idx, item in enumerate(cards_data):
                 if self.is_stopped(): break
                 try:
@@ -257,7 +272,8 @@ class BlibliGeoScraper:
                         
                     if shop_name not in unique_shops:
                         unique_shops.add(shop_name)
-                        self.log(f"  [{idx+1}/{len(cards_data)}] Ditemukan Toko: {shop_name}")
+                        # TAMBAHAN: Logika progress bar
+                        self.log(f"[{idx+1}/{total_cards}] Ditemukan Toko: {shop_name}")
                 except: pass
 
         finally:
@@ -266,9 +282,9 @@ class BlibliGeoScraper:
         return list(unique_shops)
 
     def enrich_google_maps(self, unique_shops, keyword, p):
-        self.log(f"\nTotal toko unik: {len(unique_shops)}. Memulai pengayaan Maps...")
+        total_shops = len(unique_shops)
+        self.log(f"\nTotal toko unik: {total_shops}. Memulai pengayaan Maps...")
         
-        # MURNI PLAYWRIGHT: Maps juga Headless=False agar terlihat!
         browser = p.chromium.launch(headless=False, channel="msedge", args=["--start-maximized"])
         context = browser.new_context(no_viewport=True)
         page = context.new_page()
@@ -276,12 +292,11 @@ class BlibliGeoScraper:
         final_rows = []
 
         try:
-            for shop in unique_shops:
+            for idx, shop in enumerate(unique_shops):
                 if self.is_stopped(): break
                 
-                # Format Query
                 maps_query = f"{shop} {CTX}"
-                self.log(f"Mencari di Maps: {maps_query}")
+                self.log(f"[{idx+1}/{total_shops}] Mencari di Maps: {maps_query}")
                 
                 url = "https://www.google.com/maps/search/" + urllib.parse.quote(maps_query)
                 page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -298,7 +313,6 @@ class BlibliGeoScraper:
                 
                 maps_place_name = ""
                 try:
-                    # PERBAIKAN: Gunakan class DUwDvf spesifik agar tidak menangkap teks "Hasil"
                     h1 = page.locator("h1.DUwDvf").first
                     if h1.is_visible(timeout=3000):
                         maps_place_name = clean_text(h1.text_content())
@@ -359,12 +373,12 @@ class BlibliGeoScraper:
                     "nama_sls": geo_info["nama_sls"] if geo_info else "",
                     "status": status
                 })
-                self.log(f"Maps: {shop} -> {status} | Sim: {round(similarity, 2)} | Telp: {phone}")
+                # TAMBAHAN: Progress Bar Trigger
+                self.log(f"[{idx+1}/{total_shops}] Maps: {shop} -> {status} | Sim: {round(similarity, 2)}")
 
         finally:
             browser.close()
 
-        # Format BPS 17 Kolom
         output_df = pd.DataFrame(final_rows, columns=[
             "shop_name", "maps_query", "maps_place_name", "maps_address", 
             "name_similarity", "match_quality", "latitude", "longitude", 
@@ -372,12 +386,14 @@ class BlibliGeoScraper:
             "idsls", "nama_kecamatan", "nama_desa", "nama_sls", "status"
         ])
         
-        output_file = os.path.join(f"{sanitize_filename(keyword)}_{OUTPUT_PREFIX}_enriched.xlsx")
+        if not os.path.exists("data"):
+            os.makedirs("data", exist_ok=True)
+            
+        output_file = os.path.join("data", f"{OUTPUT_PREFIX}_{sanitize_filename(keyword)}_enriched.xlsx")
         output_df.to_excel(output_file, index=False)
         self.log(f"✅ Selesai! File disimpan: {output_file}")
 
     def run(self, keyword):
-        # Seluruh siklus dibungkus dalam Playwright!
         with sync_playwright() as p:
             unique_shops = self.extract_blibli_shops(keyword, p)
             if self.is_stopped() or not unique_shops:

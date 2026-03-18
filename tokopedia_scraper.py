@@ -207,6 +207,9 @@ class TokopediaGeoScraper:
             # Scraping Kartu Tokopedia
             self.log("Scraping semua data yang sudah terbuka...")
             imgs = page.locator('img[alt="product-image"]').all()
+
+            total_imgs = len(imgs)
+            
             for img in imgs:
                 if self.is_stopped(): break
                 try:
@@ -220,7 +223,7 @@ class TokopediaGeoScraper:
                         if shop_name and "bantul" in parsed["shop_location"].lower():
                             if shop_name not in unique_shops:
                                 unique_shops.add(shop_name)
-                                self.log(f"Ditemukan Toko: {shop_name}")
+                                self.log(f"[{idx+1}/{total_imgs}] Ditemukan Toko: {shop_name}")
                 except: pass
 
         finally:
