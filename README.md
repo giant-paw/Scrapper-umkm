@@ -7,6 +7,8 @@ Update 2.0 :
 
 *Note: Khusus Blibli tidak ada filter 'Bantul' sehingga menggunakan 'Yogyakarta', Tokopedia dan Olx filter tetap 'Bantul'. Continuously tracking down and resolving bugs 
 
+<img width="1072" height="797" alt="image" src="https://github.com/user-attachments/assets/f16c2a75-a965-41fc-8635-c91a12b47027" />
+
 Cara Membuat exe :
 
 1. cek apakah sudah terinstal pyinstaller : 
