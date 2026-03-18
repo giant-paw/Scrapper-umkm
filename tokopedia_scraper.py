@@ -331,7 +331,7 @@ class TokopediaGeoScraper:
             "idsls", "nama_kecamatan", "nama_desa", "nama_sls", "status"
         ])
         
-        output_file = f"{OUTPUT_PREFIX}_{sanitize_filename(keyword)}_enriched.xlsx"
+        output_file = f"{sanitize_filename(keyword)}_{OUTPUT_PREFIX}_enriched.xlsx"
         output_df.to_excel(output_file, index=False)
         self.log(f"✅ Selesai! File disimpan: {output_file}")
 
