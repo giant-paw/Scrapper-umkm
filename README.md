@@ -1,4 +1,4 @@
-Update 2.0 :
+Update 2.5 :
 1.  Import Excel File  (Keywoard) 
 2.  Fixing Bug maps_place_name excel
 3.  Bar progress persentase scrapping
