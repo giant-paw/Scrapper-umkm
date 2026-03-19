@@ -1,14 +1,15 @@
 Update 2.0 :
-1.  Fixing Bug maps_place_name excel
-2.  Bar progress persentase scrapping
-3.  spesifik 'yogyakarta' di pencarian maps. contoh {nama toko} + 'yogyakarta'. untuk fokus pencarian toko di Yogyakarta bukan cabang lain provinsi
-4.  Kasus unik Blibli ( Sudah Diperbaiki ), jika barang yang dicari tidak ada di bantul. filter nya tidak ada pilihan bantul dan dia tetap scrapping padahal di kota lain. Contoh: coba cari 'dvr' atau 'pabx' di Blibli.com dan ketik 'Bantul', tidak ada Yogyakarta karena tidak ada penjual disitu. jadi langsung di cut tidak melanjutkan scrapping (karena tidak ada toko di Jogja)
-5.  fixing minor bug
-6.  Excel Tersimpan di folder yang sama (belum dirapikan untuk masuk ke folder data)
+1.  Import Excel File  (Keywoard) 
+2.  Fixing Bug maps_place_name excel
+3.  Bar progress persentase scrapping
+4.  spesifik 'yogyakarta' di pencarian maps. contoh {nama toko} + 'yogyakarta'. untuk fokus pencarian toko di Yogyakarta bukan cabang lain provinsi
+5.  Kasus unik Blibli ( Sudah Diperbaiki ), jika barang yang dicari tidak ada di bantul. filter nya tidak ada pilihan bantul dan dia tetap scrapping padahal di kota lain. Contoh: coba cari 'dvr' atau 'pabx' di Blibli.com dan ketik 'Bantul', tidak ada Yogyakarta karena tidak ada penjual disitu. jadi langsung di cut tidak melanjutkan scrapping (karena tidak ada toko di Jogja)
+6.  fixing minor bug
+7.  Excel Tersimpan di folder yang sama (belum dirapikan untuk masuk ke folder data)
 
-*Note: Khusus Blibli tidak ada filter 'Bantul' sehingga menggunakan 'Yogyakarta', Tokopedia dan Olx filter tetap 'Bantul'. Continuously tracking down and resolving bugs 
+<img width="1133" height="857" alt="Screenshot 2026-03-19 104730" src="https://github.com/user-attachments/assets/d10aa3fe-02f7-40ff-8214-96087e08bf33" />
 
-<img width="1072" height="797" alt="image" src="https://github.com/user-attachments/assets/f16c2a75-a965-41fc-8635-c91a12b47027" />
+<img width="1130" height="852" alt="image" src="https://github.com/user-attachments/assets/6d230fe3-da75-402a-a0fa-ced2fa41389e" />
 
 Cara Membuat exe :
 
