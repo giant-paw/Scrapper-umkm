@@ -87,7 +87,6 @@ class MultiScraperApp(ctk.CTk):
         self.frame_stop = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_stop.grid(row=2, column=0, padx=20, pady=(0, 5), sticky="ew")
         
-        # Membuat kolom kosong di sisi kiri dan kanan agar posisi di tengah
         self.frame_stop.grid_columnconfigure(0, weight=1)
         self.frame_stop.grid_columnconfigure(3, weight=1)
         
@@ -192,8 +191,8 @@ class MultiScraperApp(ctk.CTk):
             os.makedirs(target_folder)
         filepath = os.path.join(target_folder, "Template_Keyword.xlsx")
         
-        df = pd.DataFrame({"Keyword": ["Headset", "Speaker", "Webcam", "Printer"]})
-        df.to_excel(filepath, index=False)
+        df = pd.DataFrame(["Headset", "Speaker", "Webcam", "Printer"])
+        df.to_excel(filepath, index=False, header=False)
         self.tulis_log(f"✅ Template Excel berhasil dibuat! Disimpan di: {filepath}")
         
         try:
@@ -221,7 +220,6 @@ class MultiScraperApp(ctk.CTk):
         self.entry_keyword.configure(state=state_normal)
         self.btn_stop.configure(state="normal" if is_running else "disabled")
         
-        # Hentikan timer jika proses selesai/berhenti
         if not is_running:
             self.timer_running = False
 
@@ -231,7 +229,6 @@ class MultiScraperApp(ctk.CTk):
         self.stop_flag = True
         self.btn_stop.configure(state="disabled")
 
-    # --- FUNGSI FORMAT WAKTU UNTUK LOG ---
     def format_waktu(self, detik):
         m, s = divmod(int(detik), 60)
         h, m = divmod(m, 60)
@@ -256,7 +253,6 @@ class MultiScraperApp(ctk.CTk):
         self.progress_bar.set(0)
         self.label_pct.configure(text="0%")
         
-        # Mulai Timer UI
         self.label_timer.configure(text="⏱️ Waktu: 00:00")
         self.start_time_ui = time.time()
         self.timer_running = True
@@ -306,11 +302,19 @@ class MultiScraperApp(ctk.CTk):
             return
 
         try:
-            df = pd.read_excel(self.bulk_filepath)
-            if "Keyword" not in df.columns:
-                self.tulis_log("⚠️ Error: File Excel tidak memiliki kolom bernama 'Keyword'.")
-                return
-            keywords = df["Keyword"].dropna().astype(str).tolist()
+            # PERBAIKAN: Baca Excel tanpa header (baris pertama langsung dianggap data)
+            df = pd.read_excel(self.bulk_filepath, header=None)
+            
+            # Mengambil semua baris di kolom pertama (index 0)
+            raw_keywords = df[0].dropna().astype(str).tolist()
+            
+            # Membersihkan keyword (jaga-jaga user ngetik spasi atau masih naruh tulisan "Keyword")
+            keywords = []
+            for kw in raw_keywords:
+                cleaned = kw.strip()
+                if cleaned and cleaned.lower() != "keyword":
+                    keywords.append(cleaned)
+                    
         except Exception as e:
             self.tulis_log(f"⚠️ Error membaca Excel: {e}")
             return
@@ -324,7 +328,6 @@ class MultiScraperApp(ctk.CTk):
         self.progress_bar.set(0)
         self.label_pct.configure(text="0%")
         
-        # Mulai Timer UI
         self.label_timer.configure(text="⏱️ Waktu: 00:00")
         self.start_time_ui = time.time()
         self.timer_running = True
