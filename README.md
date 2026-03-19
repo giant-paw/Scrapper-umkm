@@ -3,7 +3,7 @@ Update 2.5 :
 2.  Fixing Bug maps_place_name excel
 3.  Bar progress persentase scrapping
 4.  spesifik 'yogyakarta' di pencarian maps. contoh {nama toko} + 'yogyakarta'. untuk fokus pencarian toko di Yogyakarta bukan cabang lain provinsi
-5.  Kasus unik Blibli ( Sudah Diperbaiki ), jika barang yang dicari tidak ada di bantul. sebelum diperbaiki, filter lokasi nya tidak ada pilihan 'bantul', tapi aplikasi akan tetap scrapping. Contoh: coba cari 'dvr' atau 'pabx' di Blibli.com dan ketik filter lokasi 'Bantul', maka tidak ada pilihan 'Bantul' karena tidak ada penjual (toko) disitu. jadi aplikasi dibuat langsung stop tidak melanjutkan scrapping (karena tidak ada toko di Bantul)
+5.  Kasus unik Blibli ( Sudah Diperbaiki ), jika barang yang dicari tidak ada di bantul. sebelum diperbaiki, filter lokasi nya tidak ada pilihan 'bantul', tapi aplikasi akan tetap scrapping. Contoh: coba cari 'nitendo', 'dvr' atau 'pabx' di Blibli.com dan ketik filter lokasi 'Bantul', maka tidak ada pilihan 'Bantul' karena tidak ada penjual (toko) disitu. jadi aplikasi dibuat langsung stop tidak melanjutkan scrapping (karena tidak ada toko di Bantul)
 6.  fixing minor bug
 7.  tampilan waktu lama scrapping
 8.  Excel Tersimpan di folder 'data'
