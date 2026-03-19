@@ -10,7 +10,7 @@ Update 2.5 :
 
 *Note : masih banyak kecampur data tampil di platform online shop kabupaten Bantul dan kabupaten lain (Sleman). jadi di excel masih ada banyak diluar ring
 
-<img width="1140" height="855" alt="image" src="https://github.com/user-attachments/assets/2cc76822-7f91-4523-8b81-8c6f52a67c60" />
+<img width="1128" height="852" alt="Screenshot 2026-03-19 191533" src="https://github.com/user-attachments/assets/dd33848a-c6e5-4f8f-9f9e-ec13360dde8f" />
 
 <img width="1133" height="857" alt="Screenshot 2026-03-19 104730" src="https://github.com/user-attachments/assets/d10aa3fe-02f7-40ff-8214-96087e08bf33" />
 
