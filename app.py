@@ -28,6 +28,10 @@ class MultiScraperApp(ctk.CTk):
         self.grid_columnconfigure(0, weight=1)
         self.stop_flag = False
         self.bulk_filepath = None
+        
+        # Variabel untuk timer UI
+        self.timer_running = False
+        self.start_time_ui = None
 
         # ================= FRAME HEADER =================
         self.frame_header = ctk.CTkFrame(self, fg_color="transparent")
@@ -79,13 +83,20 @@ class MultiScraperApp(ctk.CTk):
         self.btn_start_bulk = ctk.CTkButton(self.tab_bulk, text="▶ Mulai Bulk (Tokped+Blibli+OLX)", command=self.mulai_bulk, font=ctk.CTkFont(weight="bold"), fg_color="#8B008B", hover_color="#640064")
         self.btn_start_bulk.grid(row=0, column=3, padx=(5, 10), pady=10, sticky="w")
 
-        # ================= FRAME KONTROL STOP =================
+        # ================= FRAME KONTROL STOP & WAKTU =================
         self.frame_stop = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_stop.grid(row=2, column=0, padx=20, pady=(0, 5), sticky="ew")
         
-        self.btn_stop = ctk.CTkButton(self.frame_stop, text="⏹ STOP / BATALKAN PROSES", command=self.stop_scraping, height=35,
-                                      fg_color="#d93838", hover_color="#b32424", state="disabled", font=ctk.CTkFont(weight="bold", size=14))
-        self.btn_stop.pack(fill="x")
+        # Membuat kolom kosong di sisi kiri dan kanan agar posisi di tengah
+        self.frame_stop.grid_columnconfigure(0, weight=1)
+        self.frame_stop.grid_columnconfigure(3, weight=1)
+        
+        self.btn_stop = ctk.CTkButton(self.frame_stop, text="⏹ Batalkan Proses", command=self.stop_scraping, height=35, width=180,
+                                      fg_color="#d93838", hover_color="#b32424", state="disabled", font=ctk.CTkFont(weight="bold", size=13))
+        self.btn_stop.grid(row=0, column=1, padx=10, pady=5)
+
+        self.label_timer = ctk.CTkLabel(self.frame_stop, text="⏱️ Waktu: 00:00", font=ctk.CTkFont(weight="bold", size=14), text_color="#1F538D")
+        self.label_timer.grid(row=0, column=2, padx=10, pady=5, sticky="w")
 
         # ================= FRAME LOG & PROGRESS =================
         self.frame_log = ctk.CTkFrame(self)
@@ -122,6 +133,18 @@ class MultiScraperApp(ctk.CTk):
 
         self.btn_open_folder = ctk.CTkButton(self.frame_footer, text="📂 Buka Folder Hasil", command=self.buka_folder, width=150)
         self.btn_open_folder.grid(row=0, column=1, sticky="e")
+
+    # --- FUNGSI UPDATE TIMER UI ---
+    def update_timer(self):
+        if self.timer_running and self.start_time_ui:
+            elapsed = int(time.time() - self.start_time_ui)
+            m, s = divmod(elapsed, 60)
+            h, m = divmod(m, 60)
+            if h > 0:
+                self.label_timer.configure(text=f"⏱️ Waktu: {h:02d}:{m:02d}:{s:02d}")
+            else:
+                self.label_timer.configure(text=f"⏱️ Waktu: {m:02d}:{s:02d}")
+            self.after(1000, self.update_timer)
 
     # --- FUNGSI LOGIKA APP ---
     def tulis_log(self, pesan):
@@ -197,12 +220,27 @@ class MultiScraperApp(ctk.CTk):
         self.option_sumber.configure(state=state_normal)
         self.entry_keyword.configure(state=state_normal)
         self.btn_stop.configure(state="normal" if is_running else "disabled")
+        
+        # Hentikan timer jika proses selesai/berhenti
+        if not is_running:
+            self.timer_running = False
 
     def stop_scraping(self):
         self.set_status("🔴 Status: Menghentikan proses...", "red")
-        self.tulis_log("\n⚠️ PERINTAH STOP DITERIMA! Proses akan berhenti setelah proses aktif saat ini selesai disave.")
+        self.tulis_log("\n⚠️ PERINTAH STOP DITERIMA! Proses akan berhenti setelah task aktif saat ini selesai disave.")
         self.stop_flag = True
         self.btn_stop.configure(state="disabled")
+
+    # --- FUNGSI FORMAT WAKTU UNTUK LOG ---
+    def format_waktu(self, detik):
+        m, s = divmod(int(detik), 60)
+        h, m = divmod(m, 60)
+        if h > 0:
+            return f"{h} jam {m} menit {s} detik"
+        elif m > 0:
+            return f"{m} menit {s} detik"
+        else:
+            return f"{s} detik"
 
     # --- MODE TUNGGAL ---
     def mulai_single(self):
@@ -217,6 +255,13 @@ class MultiScraperApp(ctk.CTk):
         self.set_status(f"🟡 Status: Mengekstrak {sumber}...", "#B8860B") 
         self.progress_bar.set(0)
         self.label_pct.configure(text="0%")
+        
+        # Mulai Timer UI
+        self.label_timer.configure(text="⏱️ Waktu: 00:00")
+        self.start_time_ui = time.time()
+        self.timer_running = True
+        self.update_timer()
+        
         self.toggle_ui_state(is_running=True)
 
         self.tulis_log("-" * 50)
@@ -227,6 +272,7 @@ class MultiScraperApp(ctk.CTk):
         thread.start()
 
     def proses_single_background(self, keyword, sumber):
+        start_time = time.time() 
         try:
             if sumber == "Blibli": scrape_blibli(keyword, callback=self.tulis_log, stop_check=self.check_apakah_stop)
             elif sumber == "Tokopedia": scrape_tokopedia(keyword, callback=self.tulis_log, stop_check=self.check_apakah_stop)
@@ -235,14 +281,18 @@ class MultiScraperApp(ctk.CTk):
                 from olx_scraper import scrape_olx 
                 scrape_olx(keyword, callback=self.tulis_log, stop_check=self.check_apakah_stop)
             
+            elapsed_time = time.time() - start_time 
+            waktu_str = self.format_waktu(elapsed_time)
+
             if self.stop_flag:
                 self.set_status("🔴 Status: Dibatalkan.", "red")
-                self.tulis_log(f"\n🛑 PROSES DIBATALKAN OLEH PENGGUNA.")
+                self.tulis_log(f"\n🛑 PROSES DIBATALKAN OLEH PENGGUNA (Waktu berjalan: {waktu_str}).")
             else:
                 self.set_status("🟢 Status: Selesai!", "green")
                 self.after(0, lambda: self.progress_bar.set(1.0))
                 self.after(0, lambda: self.label_pct.configure(text="100%"))
-                self.tulis_log(f"\n✅ PROSES SELESAI!")
+                self.tulis_log(f"\n✅ PROSES SELESAI DALAM WAKTU {waktu_str}!")
+                
         except Exception as e:
             self.set_status("🔴 Status: Error", "red")
             self.tulis_log(f"\n❌ FATAL ERROR: {e}")
@@ -273,6 +323,13 @@ class MultiScraperApp(ctk.CTk):
         self.set_status(f"🟡 Status: Memulai Bulk Scraping ({len(keywords)} kata kunci)...", "#8B008B") 
         self.progress_bar.set(0)
         self.label_pct.configure(text="0%")
+        
+        # Mulai Timer UI
+        self.label_timer.configure(text="⏱️ Waktu: 00:00")
+        self.start_time_ui = time.time()
+        self.timer_running = True
+        self.update_timer()
+
         self.toggle_ui_state(is_running=True)
 
         thread = threading.Thread(target=self.proses_bulk_background, args=(keywords,))
@@ -280,6 +337,7 @@ class MultiScraperApp(ctk.CTk):
         thread.start()
 
     def proses_bulk_background(self, keywords):
+        start_time_total = time.time() 
         sumber_list = ["Tokopedia", "Blibli", "OLX"]
         total_tasks = len(keywords) * len(sumber_list)
         current_task = 0
@@ -296,10 +354,10 @@ class MultiScraperApp(ctk.CTk):
                 self.set_status(f"🟡 Bulk [{current_task}/{total_tasks}]: '{kw}' via {sumber}...", "#8B008B")
                 self.tulis_log(f"\n{'='*40}\n📦 TASK [{current_task}/{total_tasks}]: {kw} -> {sumber}\n{'='*40}")
                 
-                # Reset progress bar visual di awal tiap sub-task
                 self.after(0, lambda: self.progress_bar.set(0))
                 self.after(0, lambda: self.label_pct.configure(text="0%"))
 
+                start_time_task = time.time() 
                 try:
                     if sumber == "Tokopedia":
                         scrape_tokopedia(kw, callback=self.tulis_log, stop_check=self.check_apakah_stop)
@@ -310,17 +368,23 @@ class MultiScraperApp(ctk.CTk):
                         scrape_olx(kw, callback=self.tulis_log, stop_check=self.check_apakah_stop)
                 except Exception as e:
                     self.tulis_log(f"❌ Error pada '{kw}' via {sumber}: {e}")
+                
+                elapsed_task = time.time() - start_time_task
+                self.tulis_log(f"⏱️ Task selesai dalam: {self.format_waktu(elapsed_task)}")
                     
             if self.stop_flag: break
 
+        elapsed_total = time.time() - start_time_total 
+        waktu_str = self.format_waktu(elapsed_total)
+
         if self.stop_flag:
             self.set_status("🔴 Status: Bulk Dibatalkan.", "red")
-            self.tulis_log(f"\n🛑 PROSES BULK DIBATALKAN. File sebelumnya aman tersimpan di folder 'data'.")
+            self.tulis_log(f"\n🛑 PROSES BULK DIBATALKAN. File sebelumnya aman (Waktu berjalan: {waktu_str}).")
         else:
             self.set_status("🟢 Status: Bulk Selesai Total!", "green")
             self.after(0, lambda: self.progress_bar.set(1.0))
             self.after(0, lambda: self.label_pct.configure(text="100%"))
-            self.tulis_log(f"\n✅ SELURUH PROSES BULK SELESAI DENGAN SEMPURNA!")
+            self.tulis_log(f"\n✅ SELURUH PROSES BULK SELESAI DENGAN SEMPURNA DALAM WAKTU {waktu_str}!")
 
         self.after(0, lambda: self.toggle_ui_state(is_running=False))
 
