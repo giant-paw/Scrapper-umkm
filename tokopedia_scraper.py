@@ -328,7 +328,10 @@ class TokopediaGeoScraper:
             "idsls", "nama_kecamatan", "nama_desa", "nama_sls", "status"
         ])
         
-        output_file = os.path.join(f"{sanitize_filename(keyword)}_{OUTPUT_PREFIX}_enriched.xlsx")
+        if not os.path.exists("data"):
+            os.makedirs("data", exist_ok=True)
+            
+        output_file = os.path.join("data", f"{sanitize_filename(keyword)}_{OUTPUT_PREFIX}_enriched.xlsx")
         output_df.to_excel(output_file, index=False)
         self.log(f"✅ Selesai! File disimpan: {output_file}")
 

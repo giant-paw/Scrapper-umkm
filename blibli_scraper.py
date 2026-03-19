@@ -9,7 +9,8 @@ from playwright.sync_api import sync_playwright
 
 # ================= CONFIG & UTILITY =================
 GEOJSON_FILE = "bantul.geojson"
-CTX = "Yogyakarta"
+FILTER_CTX = "Bantul"     # Digunakan untuk Filter Lokasi di Blibli
+MAPS_CTX = "Yogyakarta"   # Digunakan untuk Query Google Maps
 OUTPUT_PREFIX = "blibli"
 
 def sanitize_filename(text):
@@ -97,7 +98,7 @@ class BlibliGeoScraper:
             pass
 
     def _apply_filter(self, page):
-        self.log(f"Menerapkan filter Lokasi ({CTX})...")
+        self.log(f"Menerapkan filter Lokasi ({FILTER_CTX})...")
         page.evaluate("window.scrollBy(0, 300)")
         page.wait_for_timeout(1500)
 
@@ -122,10 +123,10 @@ class BlibliGeoScraper:
                     search_input = modal.locator("input[type='text']").first
                     if search_input.is_visible():
                         search_input.click(force=True)
-                        search_input.fill(CTX)
+                        search_input.fill(FILTER_CTX)
                         page.wait_for_timeout(2000) 
                         
-                        checkbox_label = modal.locator("label.blu-checkbox").filter(has_text=re.compile(CTX, re.IGNORECASE)).first
+                        checkbox_label = modal.locator("label.blu-checkbox").filter(has_text=re.compile(FILTER_CTX, re.IGNORECASE)).first
                         if checkbox_label.is_visible():
                             checkbox_label.click(force=True)
                             page.wait_for_timeout(1000)
@@ -134,25 +135,25 @@ class BlibliGeoScraper:
                             simpan_btn = modal.locator("button.b-primary").filter(has_text=re.compile(r"Simpan|Terapkan", re.IGNORECASE)).first
                             if simpan_btn.is_visible() and not simpan_btn.is_disabled():
                                 simpan_btn.click(force=True)
-                                self.log(f"Filter {CTX} BERHASIL disimpan.")
+                                self.log(f"Filter {FILTER_CTX} BERHASIL disimpan.")
                                 page.wait_for_timeout(4000)
                                 return True
                                 
                         # JIKA LOKASI TIDAK DITEMUKAN ATAU TOMBOL SIMPAN DISABLED
-                        self.log(f"⚠️ Lokasi '{CTX}' tidak tersedia untuk produk ini.")
+                        self.log(f"⚠️ Lokasi '{FILTER_CTX}' tidak tersedia untuk produk ini.")
                         close_btn = modal.locator("button.blu-modal__close, button[class*='close']").first
                         if close_btn.is_visible():
                             close_btn.click(force=True)
                         return False
                 else:
-                    direct_check = target_group.locator("label").filter(has_text=re.compile(CTX, re.IGNORECASE)).first
+                    direct_check = target_group.locator("label").filter(has_text=re.compile(FILTER_CTX, re.IGNORECASE)).first
                     if direct_check.is_visible():
                         direct_check.click(force=True)
-                        self.log(f"Filter {CTX} (Langsung) BERHASIL diterapkan.")
+                        self.log(f"Filter {FILTER_CTX} (Langsung) BERHASIL diterapkan.")
                         page.wait_for_timeout(4000)
                         return True
                     else:
-                        self.log(f"⚠️ Pilihan lokasi '{CTX}' (Langsung) tidak ditemukan.")
+                        self.log(f"⚠️ Pilihan lokasi '{FILTER_CTX}' (Langsung) tidak ditemukan.")
                         return False
         except Exception as e:
             self.log(f"Gagal menerapkan filter otomatis: {e}")
@@ -189,6 +190,7 @@ class BlibliGeoScraper:
 
             self._handle_location_popup(page)
             
+            # --- PENGECEKAN FILTER (Jika gagal, maka berhenti) ---
             filter_success = False
             for _ in range(3):
                 if self.is_stopped(): break
@@ -197,8 +199,9 @@ class BlibliGeoScraper:
                     break
             
             if not filter_success:
-                self.log(f"🛑 Menghentikan Scraping: Produk tidak tersedia di {CTX}.")
+                self.log(f"🛑 Menghentikan Scraping: Produk tidak tersedia di wilayah {FILTER_CTX}.")
                 return [] 
+            # -------------------------------------------------------
             
             current_page = 1
             max_pages = 10
@@ -250,7 +253,6 @@ class BlibliGeoScraper:
             for idx, item in enumerate(cards_data):
                 if self.is_stopped(): break
                 
-                # ---> PERBAIKAN: Log Progress diletakkan di LUAR kondisi agar selalu tereksekusi <---
                 self.log(f"[{idx+1}/{total_cards}] Memproses URL produk...")
                 
                 try:
@@ -296,9 +298,9 @@ class BlibliGeoScraper:
             for idx, shop in enumerate(unique_shops):
                 if self.is_stopped(): break
                 
-                maps_query = f"{shop} {CTX}"
+                # --- PENGGUNAAN MAPS_CTX ("Yogyakarta") UNTUK PENCARIAN MAPS ---
+                maps_query = f"{shop} {MAPS_CTX}"
                 
-                # ---> PERBAIKAN: Log Progress Maps agar bar bergerak mulus <---
                 self.log(f"[{idx+1}/{total_shops}] Mencari di Maps: {maps_query}")
                 
                 url = "https://www.google.com/maps/search/" + urllib.parse.quote(maps_query)
@@ -388,7 +390,11 @@ class BlibliGeoScraper:
             "idsls", "nama_kecamatan", "nama_desa", "nama_sls", "status"
         ])
         
-        output_file = os.path.join(f"{sanitize_filename(keyword)}_{OUTPUT_PREFIX}_enriched.xlsx")
+        # PERBAIKAN FOLDER DATA
+        if not os.path.exists("data"):
+            os.makedirs("data", exist_ok=True)
+            
+        output_file = os.path.join("data", f"{sanitize_filename(keyword)}_{OUTPUT_PREFIX}_enriched.xlsx")
         output_df.to_excel(output_file, index=False)
         self.log(f"✅ Selesai! File disimpan: {output_file}")
 
