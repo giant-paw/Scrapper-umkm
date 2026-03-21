@@ -1,15 +1,18 @@
-Update 2.0 :
+Update 2.5 :
 1.  Import Excel File  (Keywoard) 
 2.  Fixing Bug maps_place_name excel
 3.  Bar progress persentase scrapping
 4.  spesifik 'yogyakarta' di pencarian maps. contoh {nama toko} + 'yogyakarta'. untuk fokus pencarian toko di Yogyakarta bukan cabang lain provinsi
-5.  Kasus unik Blibli ( Sudah Diperbaiki ), jika barang yang dicari tidak ada di bantul. filter nya tidak ada pilihan bantul dan dia tetap scrapping padahal di kota lain. Contoh: coba cari 'dvr' atau 'pabx' di Blibli.com dan ketik 'Bantul', tidak ada Yogyakarta karena tidak ada penjual disitu. jadi langsung di cut tidak melanjutkan scrapping (karena tidak ada toko di Jogja)
+5.  Kasus unik Blibli ( Sudah Diperbaiki ), jika barang yang dicari tidak ada di bantul. sebelum diperbaiki, filter lokasi nya tidak ada pilihan 'bantul', tapi aplikasi akan tetap scrapping. Contoh: coba cari 'nitendo', 'dvr' atau 'pabx' di Blibli.com dan ketik filter lokasi 'Bantul', maka tidak ada pilihan 'Bantul' karena tidak ada penjual (toko) disitu. jadi aplikasi dibuat langsung stop tidak melanjutkan scrapping (karena tidak ada toko di Bantul)
 6.  fixing minor bug
-7.  Excel Tersimpan di folder yang sama (belum dirapikan untuk masuk ke folder data)
+7.  tampilan waktu lama scrapping
+8.  Excel Tersimpan di folder 'data'
+
+*Note : masih banyak kecampur data tampil di platform online shop kabupaten Bantul dan kabupaten lain (Sleman). jadi di excel masih ada banyak diluar ring
+
+<img width="1128" height="852" alt="Screenshot 2026-03-19 191533" src="https://github.com/user-attachments/assets/dd33848a-c6e5-4f8f-9f9e-ec13360dde8f" />
 
 <img width="1133" height="857" alt="Screenshot 2026-03-19 104730" src="https://github.com/user-attachments/assets/d10aa3fe-02f7-40ff-8214-96087e08bf33" />
-
-<img width="1130" height="852" alt="image" src="https://github.com/user-attachments/assets/6d230fe3-da75-402a-a0fa-ced2fa41389e" />
 
 Cara Membuat exe :
 
