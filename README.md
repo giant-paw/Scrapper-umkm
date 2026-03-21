@@ -1,18 +1,20 @@
 Update 2.5 :
-1.  Import Excel File  (Keywoard) 
-2.  Fixing Bug maps_place_name excel
-3.  Bar progress persentase scrapping
-4.  spesifik 'yogyakarta' di pencarian maps. contoh {nama toko} + 'yogyakarta'. untuk fokus pencarian toko di Yogyakarta bukan cabang lain provinsi
-5.  Kasus unik Blibli ( Sudah Diperbaiki ), jika barang yang dicari tidak ada di bantul. sebelum diperbaiki, filter lokasi nya tidak ada pilihan 'bantul', tapi aplikasi akan tetap scrapping. Contoh: coba cari 'nitendo', 'dvr' atau 'pabx' di Blibli.com dan ketik filter lokasi 'Bantul', maka tidak ada pilihan 'Bantul' karena tidak ada penjual (toko) disitu. jadi aplikasi dibuat langsung stop tidak melanjutkan scrapping (karena tidak ada toko di Bantul)
-6.  fixing minor bug
-7.  tampilan waktu lama scrapping
-8.  Excel Tersimpan di folder 'data'
+1.  Import Excel File  (Keywoard) -> pilih platform bulk method
+2.  Filter lokasi scrapping
+3.  Fixing Bug maps_place_name excel
+4.  Bar progress persentase scrapping
+5.  spesifik 'yogyakarta' di pencarian maps. contoh {nama toko} + 'yogyakarta'. untuk fokus pencarian toko di Yogyakarta bukan cabang lain provinsi
+6.  Kasus unik Blibli ( Sudah Diperbaiki ), jika barang yang dicari tidak ada di bantul. sebelum diperbaiki, filter lokasi nya tidak ada pilihan 'bantul', tapi aplikasi akan tetap scrapping. Contoh: coba cari 'nitendo', 'dvr' atau 'pabx' di Blibli.com dan ketik filter lokasi 'Bantul', maka tidak ada pilihan 'Bantul' karena tidak ada penjual (toko) disitu. jadi aplikasi dibuat langsung stop tidak melanjutkan scrapping (karena tidak ada toko di Bantul)
+7.  fixing minor bug
+8.  tampilan waktu lama scrapping
+9.  Excel Tersimpan di folder 'data'
 
 *Note : masih banyak kecampur data tampil di platform online shop kabupaten Bantul dan kabupaten lain (Sleman). jadi di excel masih ada banyak diluar ring
 
-<img width="1128" height="852" alt="Screenshot 2026-03-19 191533" src="https://github.com/user-attachments/assets/dd33848a-c6e5-4f8f-9f9e-ec13360dde8f" />
+<img width="1187" height="908" alt="Screenshot 2026-03-21 090810" src="https://github.com/user-attachments/assets/f854c4a3-25bf-4a8b-8753-2c83dacf93b9" />
 
-<img width="1133" height="857" alt="Screenshot 2026-03-19 104730" src="https://github.com/user-attachments/assets/d10aa3fe-02f7-40ff-8214-96087e08bf33" />
+<img width="1177" height="909" alt="Screenshot 2026-03-21 090741" src="https://github.com/user-attachments/assets/9cc07454-48ca-4504-abce-33d7b76c6905" />
+
 
 Cara Membuat exe :
 
