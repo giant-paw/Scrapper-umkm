@@ -8,9 +8,6 @@ import pandas as pd
 from playwright.sync_api import sync_playwright
 
 # ================= CONFIG & UTILITY =================
-GEOJSON_FILE = "bantul.geojson"
-MAPS_CTX = "Yogyakarta" # Digunakan untuk Query Google Maps
-FILTER_CTX = "Kab. Bantul" # Digunakan untuk Filter Tokopedia
 OUTPUT_PREFIX = "tokopedia"
 
 def sanitize_filename(text):
@@ -29,7 +26,7 @@ def clean_text(text):
     if not text: return ""
     return re.sub(r"\s+", " ", str(text)).strip()
 
-def parse_card_texts(texts):
+def parse_card_texts(texts, target_lokasi):
     texts = [clean_text(t) for t in texts if clean_text(t)]
     product_name, price, sold, shop_name, shop_location = "", "", "", "", ""
     for t in texts:
@@ -37,7 +34,7 @@ def parse_card_texts(texts):
         if not sold and "terjual" in t.lower(): sold = t
         
     for i in range(len(texts) - 1):
-        if "bantul" in texts[i + 1].lower():
+        if target_lokasi.lower() in texts[i + 1].lower():
             shop_name, shop_location = texts[i], texts[i + 1]
             break
             
@@ -50,14 +47,26 @@ def parse_card_texts(texts):
     return {"product_name": product_name, "price": price, "sold": sold, "shop_name": shop_name, "shop_location": shop_location}
 
 class TokopediaGeoScraper:
-    def __init__(self, callback=None, stop_check=None):
+    def __init__(self, lokasi="Kab. Bantul", callback=None, stop_check=None):
+        self.lokasi_lengkap = lokasi
         self.log_callback = callback
         self.stop_check = stop_check
+        
+        # Ekstrak data untuk Maps dan Web Tokopedia secara dinamis
+        self.filter_ctx = self.lokasi_lengkap 
+        self.maps_ctx = self.lokasi_lengkap.replace("Kab. ", "").replace("Kota ", "").strip()
+        
+        # Load File GeoJSON dinamis (ex: bantul.geojson, yogyakarta.geojson)
+        self.geojson_file = f"{self.maps_ctx.lower().replace(' ', '_')}.geojson"
         try:
-            with open(GEOJSON_FILE, "r", encoding="utf-8") as f:
-                self.gj = json.load(f)
+            if os.path.exists(self.geojson_file):
+                with open(self.geojson_file, "r", encoding="utf-8") as f:
+                    self.gj = json.load(f)
+            else:
+                self.log(f"Info: File GeoJSON {self.geojson_file} tidak ditemukan, filter polygon di-skip.")
+                self.gj = {}
         except Exception as e:
-            self.log(f"Peringatan: Gagal memuat {GEOJSON_FILE}: {e}")
+            self.log(f"Peringatan: Gagal memuat {self.geojson_file}: {e}")
             self.gj = {}
 
     def log(self, msg):
@@ -135,7 +144,7 @@ class TokopediaGeoScraper:
                 self.log("⚠️ Kotak pencarian tidak ditemukan.")
                 return []
 
-            self.log(f"Menerapkan Filter Lokasi ({FILTER_CTX})...")
+            self.log(f"Menerapkan Filter Lokasi ({self.filter_ctx})...")
             filter_btn = page.locator('[data-testid="lnkSRPSeeAllLocFilter"]').first
             if filter_btn.is_visible():
                 filter_btn.click(force=True)
@@ -143,10 +152,10 @@ class TokopediaGeoScraper:
 
                 loc_input = page.locator('input[aria-label="Cari lokasi"]').first
                 if loc_input.is_visible():
-                    loc_input.fill(FILTER_CTX)
+                    loc_input.fill(self.filter_ctx)
                     page.wait_for_timeout(2000)
 
-                target_xpath = f'//*[contains(text(),"{FILTER_CTX}")]/ancestor::*[self::label or self::div or self::li][1]'
+                target_xpath = f'//*[contains(text(),"{self.filter_ctx}")]/ancestor::*[self::label or self::div or self::li][1]'
                 target_lbl = page.locator(target_xpath).first
                 if target_lbl.is_visible():
                     target_lbl.click(force=True)
@@ -197,21 +206,22 @@ class TokopediaGeoScraper:
             imgs = page.locator('img[alt="product-image"]').all()
 
             total_imgs = len(imgs)
+            lokasi_lower = self.maps_ctx.lower()
             
             for idx, img in enumerate(imgs):
                 if self.is_stopped(): break
                 
-                # --- PERBAIKAN: Log Progress diletakkan di LUAR try-except agar selalu tereksekusi ---
                 self.log(f"[{idx+1}/{total_imgs}] Memindai produk...")
                 
                 try:
-                    card = img.locator("xpath=./ancestor::div[contains(translate(., 'BANTUL', 'bantul'), 'bantul')][1]").first
+                    card_xpath = f"./ancestor::div[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{lokasi_lower}')][1]"
+                    card = img.locator(f"xpath={card_xpath}").first
                     if card.is_visible():
                         texts = card.locator("span").all_inner_texts()
-                        parsed = parse_card_texts(texts)
+                        parsed = parse_card_texts(texts, target_lokasi=self.maps_ctx)
                         
                         shop_name = clean_text(parsed["shop_name"])
-                        if shop_name and "bantul" in parsed["shop_location"].lower():
+                        if shop_name and self.maps_ctx.lower() in parsed["shop_location"].lower():
                             if shop_name not in unique_shops:
                                 unique_shops.add(shop_name)
                                 self.log(f"-> Ditemukan Toko Unik: {shop_name}")
@@ -236,9 +246,8 @@ class TokopediaGeoScraper:
             for idx, shop in enumerate(unique_shops):
                 if self.is_stopped(): break
                 
-                maps_query = f"{shop} {MAPS_CTX}"
+                maps_query = f"{shop} {self.maps_ctx}"
                 
-                # --- PERBAIKAN: Log Progress Maps agar bar bergerak mulus ---
                 self.log(f"[{idx+1}/{total_shops}] Mencari di Maps: {maps_query}")
                 
                 url = "https://www.google.com/maps/search/" + urllib.parse.quote(maps_query)
@@ -344,6 +353,6 @@ class TokopediaGeoScraper:
             
             self.enrich_google_maps(list(unique_shops), keyword, p)
 
-def scrape_tokopedia(keyword, callback=None, stop_check=None):
-    scraper = TokopediaGeoScraper(callback=callback, stop_check=stop_check)
+def scrape_tokopedia(keyword, lokasi="Kab. Bantul", callback=None, stop_check=None):
+    scraper = TokopediaGeoScraper(lokasi=lokasi, callback=callback, stop_check=stop_check)
     scraper.run(keyword)

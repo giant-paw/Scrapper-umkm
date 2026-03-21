@@ -15,9 +15,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 # ================= CONFIG & UTILITY =================
-GEOJSON_FILE = "bantul.geojson"
-CTX = "Bantul" # Untuk filter URL awal
-MAPS_CTX = "Yogyakarta" # Khusus untuk pencarian di Maps
 OUTPUT_PREFIX = "olx"
 
 def sanitize_filename(text):
@@ -37,15 +34,42 @@ def clean_text(text):
     return re.sub(r"\s+", " ", str(text)).strip()
 
 class OLXGeoScraper:
-    def __init__(self, callback=None, stop_check=None):
+    def __init__(self, lokasi="Kab. Bantul", callback=None, stop_check=None):
+        self.lokasi_lengkap = lokasi
         self.log_callback = callback
         self.stop_check = stop_check
+        
+        # Ekstrak data untuk Maps dan Web dinamis
+        self.maps_ctx = self.lokasi_lengkap.replace("Kab. ", "").replace("Kota ", "").strip()
+        self.filter_ctx = self.maps_ctx 
+        
+        # Load File GeoJSON dinamis
+        self.geojson_file = f"{self.maps_ctx.lower().replace(' ', '_')}.geojson"
         try:
-            with open(GEOJSON_FILE, "r", encoding="utf-8") as f:
-                self.gj = json.load(f)
+            if os.path.exists(self.geojson_file):
+                with open(self.geojson_file, "r", encoding="utf-8") as f:
+                    self.gj = json.load(f)
+            else:
+                self.log(f"Info: File GeoJSON {self.geojson_file} tidak ditemukan, filter polygon di-skip.")
+                self.gj = {}
         except Exception as e:
-            self.log(f"Peringatan: Gagal memuat {GEOJSON_FILE}: {e}")
+            self.log(f"Peringatan: Gagal memuat {self.geojson_file}: {e}")
             self.gj = {}
+
+        # MAPPING KHUSUS OLX KARENA URL MENGGUNAKAN ID REGIONAL
+        self.olx_location_map = {
+            "Kab. Bantul": "bantul-kab_g4000068",
+            "Kota Yogyakarta": "yogyakarta-kota_g4000066",
+            "Kab. Sleman": "sleman-kab_g4000069",
+            "Kota Jakarta Selatan": "jakarta-selatan_g4000030",
+            "Kota Bandung": "bandung-kota_g4000065",
+            "Kota Surabaya": "surabaya-kota_g4000208",
+            "Kota Semarang": "semarang-kota_g4000100",
+            "Kota Medan": "medan-kota_g4000283",
+            "Kota Makassar": "makassar-kota_g4000188"
+        }
+        # Jika lokasi tidak ada di list, default ke seluruh indonesia
+        self.olx_slug = self.olx_location_map.get(self.lokasi_lengkap, "indonesia_g4000000")
 
     def log(self, msg):
         if self.log_callback: self.log_callback(msg)
@@ -133,10 +157,10 @@ class OLXGeoScraper:
         
         try:
             safe_kw = urllib.parse.quote(keyword)
-            # Pencarian default sudah menggunakan kode area Bantul
-            search_url = f"https://www.olx.co.id/bantul-kab_g4000068/q-{safe_kw}"
+            # URL OLX Dinamis berdasarkan pilihan UI
+            search_url = f"https://www.olx.co.id/{self.olx_slug}/q-{safe_kw}"
             
-            self.log(f"Membuka OLX area Bantul untuk: '{keyword}'...")
+            self.log(f"Membuka OLX area {self.lokasi_lengkap} untuk: '{keyword}'...")
             driver.get(search_url)
             time.sleep(4)
 
@@ -173,7 +197,6 @@ class OLXGeoScraper:
 
             self.log("Mengekstrak URL dari kartu produk...")
             
-            # Selector diganti ke parent 'li' agar lebih kuat mengekstrak info
             cards = driver.find_elements(By.CSS_SELECTOR, 'li[data-aut-id="itemBox"], a[href*="/item/"]')
             
             items_to_visit = []
@@ -182,7 +205,6 @@ class OLXGeoScraper:
             for card in cards:
                 if self.is_stopped(): break
                 try:
-                    # Cari URL
                     if card.tag_name == "a":
                         url = card.get_attribute("href")
                     else:
@@ -193,7 +215,6 @@ class OLXGeoScraper:
                     seen_urls.add(url)
                     if url.startswith("/"): url = "https://www.olx.co.id" + url
 
-                    # Ambil informasi teks card secara cerdas
                     card_text = card.get_attribute("innerText") or ""
                     lines = [line.strip() for line in card_text.split('\n') if line.strip()]
                     
@@ -211,11 +232,10 @@ class OLXGeoScraper:
                     elif len(lines) >= 3:
                         location = lines[-1]
 
-                    # FILTER STRING "BANTUL" DIHAPUS agar kecamatan (misal Sewon) tidak dibuang!
                     items_to_visit.append({
                         "product_name": title or "Produk OLX",
                         "price": price or "N/A",
-                        "location": location or "Bantul",
+                        "location": location or self.filter_ctx, # <-- Dinamis fallback lokasi
                         "url": url
                     })
                 except: pass
@@ -229,29 +249,24 @@ class OLXGeoScraper:
                     driver.get(item["url"])
                     time.sleep(2.5)
                     
-                    # Selector untuk menangkap nama
                     seller_els = driver.find_elements(By.CSS_SELECTOR, '.eHFQs, [data-aut-id="profileCard"] ._2tgkn div, [data-aut-id="profileCard"] span')
                     seller_name = ""
                     
                     for el in seller_els:
                         if el.is_displayed():
                             txt = clean_text(el.get_attribute("innerText"))
-                            # Abaikan jika tulisannya cuma "OLX User" atau deskripsi tgl bergabung
                             if txt and txt.lower() != "olx user" and "member sejak" not in txt.lower():
                                 seller_name = txt
                                 break
                     
-                    # PERBAIKAN: Jika tetap kosong, gunakan ID IKLAN dari URL agar TIDAK TERTUMPUK
                     if not seller_name or seller_name.lower() == "olx user":
                         item_id = item["url"].split("-iid-")[-1] if "-iid-" in item["url"] else str(idx)
                         seller_name = f"Penjual Individu {item_id}"
                     
-                    # Deduplikasi penjual berdasarkan namanya
                     row_key = normalize_name(seller_name)
                     if row_key in seen_shops: continue
                     seen_shops.add(row_key)
                     
-                    # Simpan data
                     rows.append({
                         "shop_name": seller_name,
                         "shop_location": item["location"],
@@ -277,7 +292,7 @@ class OLXGeoScraper:
 
         self.log(f"Total penjual unik ditemukan: {len(df)}. Memulai pengayaan Google Maps...")
         options = webdriver.ChromeOptions()
-        # options.add_argument("--headless") # Maps Tampil di Layar
+        # options.add_argument("--headless")
         driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
         final_rows = []
@@ -286,14 +301,14 @@ class OLXGeoScraper:
             if self.is_stopped(): break
             shop = row["shop_name"]
             
-            maps_query = f"{shop} {MAPS_CTX}"
+            # --- PENGGUNAAN MAPS_CTX DINAMIS ---
+            maps_query = f"{shop} {self.maps_ctx}"
             maps_place_name, maps_address, phone, maps_url = "", "", "", ""
             lat, lng = None, None
             geo_info = None
             similarity = 0.0
             match_quality = "RENDAH"
 
-            # Lewati Map untuk penjual individu yang tak ber-identitas pasti
             if "Penjual Individu" in shop:
                 status = "DILUAR_RING (Individu)"
                 self.log(f"Maps: {shop} -> Lewati (Penjual Individu)")
@@ -312,7 +327,6 @@ class OLXGeoScraper:
                 maps_url = driver.current_url
                 
                 try:
-                    # PERBAIKAN: Penargetan spesifik ke class "DUwDvf"
                     h1 = driver.find_element(By.CSS_SELECTOR, "h1.DUwDvf")
                     maps_place_name = clean_text(h1.text)
                     if not maps_place_name:
@@ -354,7 +368,6 @@ class OLXGeoScraper:
 
                 self.log(f"Maps: {shop} -> {status} | Sim: {round(similarity, 2)} | Telp: {phone}")
 
-            # Array 17 Kolom
             final_rows.append({
                 "shop_name": shop,
                 "maps_query": maps_query,
@@ -365,14 +378,14 @@ class OLXGeoScraper:
                 "latitude": lat,
                 "longitude": lng,
                 "phone": phone,
-                "website": "",  # Blank
-                "email": "",    # Blank
+                "website": "", 
+                "email": "", 
                 "maps_url": maps_url,
-                "idsls": geo_info["idsls"] if geo_info else "",                 
+                "idsls": geo_info["idsls"] if geo_info else "",                
                 "nama_kecamatan": geo_info["nama_kecamatan"] if geo_info else "", 
                 "nama_desa": geo_info["nama_desa"] if geo_info else "",           
                 "nama_sls": geo_info["nama_sls"] if geo_info else "",             
-                "status": status                                                
+                "status": status                                                  
             })
 
         driver.quit()
@@ -384,6 +397,7 @@ class OLXGeoScraper:
             "idsls", "nama_kecamatan", "nama_desa", "nama_sls", "status"
         ])
         
+        # PERBAIKAN FOLDER DATA
         if not os.path.exists("data"):
             os.makedirs("data", exist_ok=True)
             
@@ -391,6 +405,6 @@ class OLXGeoScraper:
         output_df.to_excel(output_file, index=False)
         self.log(f"✅ Selesai! File disimpan: {output_file}")
 
-def scrape_olx(keyword, callback=None, stop_check=None):
-    scraper = OLXGeoScraper(callback=callback, stop_check=stop_check)
+def scrape_olx(keyword, lokasi="Kab. Bantul", callback=None, stop_check=None):
+    scraper = OLXGeoScraper(lokasi=lokasi, callback=callback, stop_check=stop_check)
     scraper.run(keyword)

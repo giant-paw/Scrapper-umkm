@@ -9,6 +9,7 @@ import re
 import pandas as pd
 from tkinter import filedialog
 
+# Sesuaikan dengan nama file scraper Anda
 from blibli_scraper import scrape_blibli
 from tokopedia_scraper import scrape_tokopedia 
 from shopee_scraper import scrape_shopee 
@@ -21,29 +22,41 @@ class MultiScraperApp(ctk.CTk):
         super().__init__()
 
         self.title("Geo-Scraper E-Commerce Pro v2.5 (Bulk Edition)")
-        self.geometry("900x650")
-        self.minsize(850, 550)
+        self.geometry("950x700")
+        self.minsize(850, 600)
 
         self.grid_rowconfigure(3, weight=1)
         self.grid_columnconfigure(0, weight=1)
         self.stop_flag = False
         self.bulk_filepath = None
+        self.saved_keywords = [] # Untuk menyimpan keyword dari Excel
         
-        # Variabel untuk timer UI
         self.timer_running = False
         self.start_time_ui = None
 
-        # ================= FRAME HEADER =================
+        # ================= FRAME HEADER & LOKASI GLOBAL =================
         self.frame_header = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_header.grid(row=0, column=0, padx=20, pady=(20, 5), sticky="ew")
         
         self.label_title = ctk.CTkLabel(self.frame_header, text="E-Commerce Geo-Scraper v2.5", font=ctk.CTkFont(size=24, weight="bold"), text_color="#1F538D")
         self.label_title.pack()
         self.label_subtitle = ctk.CTkLabel(self.frame_header, text="Mode Pencarian Massal & Pemetaan Spasial", text_color="gray")
-        self.label_subtitle.pack()
+        self.label_subtitle.pack(pady=(0, 10))
+
+        # FITUR BARU: Filter Lokasi Dinamis
+        self.frame_lokasi = ctk.CTkFrame(self.frame_header, fg_color="transparent")
+        self.frame_lokasi.pack()
+        self.label_lokasi = ctk.CTkLabel(self.frame_lokasi, text="📍 Target Lokasi:", font=ctk.CTkFont(weight="bold"))
+        self.label_lokasi.pack(side="left", padx=5)
+        
+        # Pengguna bisa memilih dari list atau mengetik kota manual
+        list_kota = ["Kab. Bantul", "Kota Yogyakarta", "Kab. Sleman", "Kota Jakarta Selatan", "Kota Bandung", "Kota Surabaya", "Kota Semarang", "Kota Medan", "Kota Makassar"]
+        self.combo_lokasi = ctk.CTkComboBox(self.frame_lokasi, values=list_kota, width=220)
+        self.combo_lokasi.set("Kab. Bantul")
+        self.combo_lokasi.pack(side="left", padx=5)
 
         # ================= TABS (SINGLE & BULK) =================
-        self.tabview = ctk.CTkTabview(self, height=100)
+        self.tabview = ctk.CTkTabview(self, height=120)
         self.tabview.grid(row=1, column=0, padx=20, pady=(5, 10), sticky="ew")
         
         self.tab_single = self.tabview.add("Pencarian Tunggal (Single)")
@@ -71,33 +84,55 @@ class MultiScraperApp(ctk.CTk):
         # --- ISI TAB BULK ---
         self.tab_bulk.grid_columnconfigure((0,1,2,3), weight=1)
         
+        # Baris 1: Upload & Info
         self.btn_template = ctk.CTkButton(self.tab_bulk, text="⬇ Unduh Template Excel", command=self.unduh_template, fg_color="#228B22", hover_color="#006400")
-        self.btn_template.grid(row=0, column=0, padx=(10, 5), pady=10, sticky="e")
+        self.btn_template.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
 
         self.btn_upload = ctk.CTkButton(self.tab_bulk, text="📂 Pilih File Excel", command=self.pilih_file, fg_color="gray", hover_color="#555555")
-        self.btn_upload.grid(row=0, column=1, padx=5, pady=10, sticky="w")
+        self.btn_upload.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
-        self.label_file = ctk.CTkLabel(self.tab_bulk, text="Belum ada file terpilih.", text_color="red", width=200)
-        self.label_file.grid(row=0, column=2, padx=5, pady=10, sticky="w")
+        self.label_file = ctk.CTkLabel(self.tab_bulk, text="Belum ada file terpilih.", text_color="red")
+        self.label_file.grid(row=0, column=2, padx=5, pady=5, sticky="w")
 
-        self.btn_start_bulk = ctk.CTkButton(self.tab_bulk, text="▶ Mulai Bulk (Tokped+Blibli+OLX)", command=self.mulai_bulk, font=ctk.CTkFont(weight="bold"), fg_color="#8B008B", hover_color="#640064")
-        self.btn_start_bulk.grid(row=0, column=3, padx=(5, 10), pady=10, sticky="w")
+        # FITUR BARU: Tombol Info Keyword
+        self.btn_info_kw = ctk.CTkButton(self.tab_bulk, text="👁️ Info Keyword", command=self.lihat_keyword, state="disabled", fg_color="#E67E22", hover_color="#D35400")
+        self.btn_info_kw.grid(row=0, column=3, padx=5, pady=5, sticky="ew")
 
-        # ================= FRAME KONTROL STOP & WAKTU =================
+        # Baris 2: Checkbox Platform & Mulai
+        self.frame_chk = ctk.CTkFrame(self.tab_bulk, fg_color="transparent")
+        self.frame_chk.grid(row=1, column=0, columnspan=3, padx=5, pady=5, sticky="w")
+        
+        self.label_platform = ctk.CTkLabel(self.frame_chk, text="Pilih Platform:", font=ctk.CTkFont(weight="bold"))
+        self.label_platform.pack(side="left", padx=(5, 10))
+
+        self.chk_tokped_var = ctk.StringVar(value="Tokopedia")
+        self.chk_tokped = ctk.CTkCheckBox(self.frame_chk, text="Tokopedia", variable=self.chk_tokped_var, onvalue="Tokopedia", offvalue="")
+        self.chk_tokped.pack(side="left", padx=5)
+
+        self.chk_blibli_var = ctk.StringVar(value="Blibli")
+        self.chk_blibli = ctk.CTkCheckBox(self.frame_chk, text="Blibli", variable=self.chk_blibli_var, onvalue="Blibli", offvalue="")
+        self.chk_blibli.pack(side="left", padx=5)
+
+        self.chk_olx_var = ctk.StringVar(value="OLX")
+        self.chk_olx = ctk.CTkCheckBox(self.frame_chk, text="OLX", variable=self.chk_olx_var, onvalue="OLX", offvalue="")
+        self.chk_olx.pack(side="left", padx=5)
+
+        self.btn_start_bulk = ctk.CTkButton(self.tab_bulk, text="▶ Mulai Bulk", command=self.mulai_bulk, font=ctk.CTkFont(weight="bold"), fg_color="#8B008B", hover_color="#640064")
+        self.btn_start_bulk.grid(row=1, column=3, padx=5, pady=5, sticky="ew")
+
+        # ================= FRAME KONTROL STOP & WAKTU (Tetap Sama) =================
         self.frame_stop = ctk.CTkFrame(self, fg_color="transparent")
         self.frame_stop.grid(row=2, column=0, padx=20, pady=(0, 5), sticky="ew")
-        
         self.frame_stop.grid_columnconfigure(0, weight=1)
         self.frame_stop.grid_columnconfigure(3, weight=1)
         
-        self.btn_stop = ctk.CTkButton(self.frame_stop, text="⏹ Batalkan Proses", command=self.stop_scraping, height=35, width=180,
-                                      fg_color="#d93838", hover_color="#b32424", state="disabled", font=ctk.CTkFont(weight="bold", size=13))
+        self.btn_stop = ctk.CTkButton(self.frame_stop, text="⏹ Batalkan Proses", command=self.stop_scraping, height=35, width=180, fg_color="#d93838", hover_color="#b32424", state="disabled", font=ctk.CTkFont(weight="bold", size=13))
         self.btn_stop.grid(row=0, column=1, padx=10, pady=5)
 
         self.label_timer = ctk.CTkLabel(self.frame_stop, text="⏱️ Waktu: 00:00", font=ctk.CTkFont(weight="bold", size=14), text_color="#1F538D")
         self.label_timer.grid(row=0, column=2, padx=10, pady=5, sticky="w")
 
-        # ================= FRAME LOG & PROGRESS =================
+        # ================= FRAME LOG & PROGRESS (Tetap Sama) =================
         self.frame_log = ctk.CTkFrame(self)
         self.frame_log.grid(row=3, column=0, padx=20, pady=(5, 10), sticky="nsew")
         self.frame_log.grid_rowconfigure(1, weight=1)
@@ -145,13 +180,12 @@ class MultiScraperApp(ctk.CTk):
                 self.label_timer.configure(text=f"⏱️ Waktu: {m:02d}:{s:02d}")
             self.after(1000, self.update_timer)
 
-    # --- FUNGSI LOGIKA APP ---
+    # --- FUNGSI LOGIKA APP & UTILITY ---
     def tulis_log(self, pesan):
         match = re.search(r'\[(\d+)/(\d+)\]', pesan)
         if match:
             try:
-                current = int(match.group(1))
-                total = int(match.group(2))
+                current, total = int(match.group(1)), int(match.group(2))
                 if total > 0:
                     pct = current / total
                     self.after(0, lambda: self.progress_bar.set(pct))
@@ -176,8 +210,7 @@ class MultiScraperApp(ctk.CTk):
 
     def buka_folder(self):
         target_folder = os.path.join(os.getcwd(), "data")
-        if not os.path.exists(target_folder):
-            os.makedirs(target_folder)
+        os.makedirs(target_folder, exist_ok=True)
         try:
             if sys.platform == "win32": os.startfile(target_folder)
             elif sys.platform == "darwin": subprocess.Popen(["open", target_folder])
@@ -187,26 +220,55 @@ class MultiScraperApp(ctk.CTk):
 
     def unduh_template(self):
         target_folder = os.path.join(os.getcwd(), "data")
-        if not os.path.exists(target_folder):
-            os.makedirs(target_folder)
+        os.makedirs(target_folder, exist_ok=True)
         filepath = os.path.join(target_folder, "Template_Keyword.xlsx")
-        
-        df = pd.DataFrame(["Headset", "Speaker", "Webcam", "Printer"])
-        df.to_excel(filepath, index=False, header=False)
-        self.tulis_log(f"✅ Template Excel berhasil dibuat! Disimpan di: {filepath}")
-        
-        try:
-            if sys.platform == "win32": os.startfile(filepath)
-            elif sys.platform == "darwin": subprocess.Popen(["open", filepath])
-        except: pass
+        pd.DataFrame(["Headset", "Speaker", "Webcam", "Printer"]).to_excel(filepath, index=False, header=False)
+        self.tulis_log(f"✅ Template Excel dibuat: {filepath}")
 
+    # FITUR BARU: Baca Excel & Simpan list Keyword sementara ke UI
     def pilih_file(self):
         file = filedialog.askopenfilename(title="Pilih File Excel", filetypes=[("Excel files", "*.xlsx *.xls")])
         if file:
             self.bulk_filepath = file
             filename = os.path.basename(file)
             self.label_file.configure(text=f"Terpilih: {filename}", text_color="green")
-            self.tulis_log(f"File terpilih untuk Bulk: {filename}")
+            
+            try:
+                df = pd.read_excel(self.bulk_filepath, header=None)
+                raw_keywords = df[0].dropna().astype(str).tolist()
+                
+                self.saved_keywords = []
+                for kw in raw_keywords:
+                    cleaned = kw.strip()
+                    if cleaned and cleaned.lower() != "keyword":
+                        self.saved_keywords.append(cleaned)
+                
+                if self.saved_keywords:
+                    self.btn_info_kw.configure(state="normal")
+                    self.tulis_log(f"Berhasil mendeteksi {len(self.saved_keywords)} keyword dari file {filename}.")
+                else:
+                    self.tulis_log("⚠️ File excel kosong atau format tidak sesuai.")
+            except Exception as e:
+                self.tulis_log(f"⚠️ Error membaca Excel: {e}")
+
+    # FITUR BARU: Popup Info Keyword
+    def lihat_keyword(self):
+        if not self.saved_keywords: return
+            
+        top = ctk.CTkToplevel(self)
+        top.title("Daftar Keyword")
+        top.geometry("350x450")
+        top.transient(self) 
+        
+        lbl = ctk.CTkLabel(top, text=f"Total: {len(self.saved_keywords)} Keyword Tersimpan", font=ctk.CTkFont(weight="bold"))
+        lbl.pack(pady=10)
+        
+        textbox = ctk.CTkTextbox(top, width=320, height=380, font=ctk.CTkFont(size=12))
+        textbox.pack(padx=10, pady=10)
+        
+        for idx, kw in enumerate(self.saved_keywords, 1):
+            textbox.insert("end", f"{idx}. {kw}\n")
+        textbox.configure(state="disabled")
 
     def check_apakah_stop(self):
         return self.stop_flag
@@ -218,8 +280,18 @@ class MultiScraperApp(ctk.CTk):
         self.btn_upload.configure(state=state_normal)
         self.option_sumber.configure(state=state_normal)
         self.entry_keyword.configure(state=state_normal)
-        self.btn_stop.configure(state="normal" if is_running else "disabled")
+        self.combo_lokasi.configure(state=state_normal)
+        self.chk_tokped.configure(state=state_normal)
+        self.chk_blibli.configure(state=state_normal)
+        self.chk_olx.configure(state=state_normal)
         
+        # Disable/enable tombol info keyword sesuai kondisi file
+        if not is_running and self.saved_keywords:
+            self.btn_info_kw.configure(state="normal")
+        else:
+            self.btn_info_kw.configure(state="disabled")
+
+        self.btn_stop.configure(state="normal" if is_running else "disabled")
         if not is_running:
             self.timer_running = False
 
@@ -232,24 +304,22 @@ class MultiScraperApp(ctk.CTk):
     def format_waktu(self, detik):
         m, s = divmod(int(detik), 60)
         h, m = divmod(m, 60)
-        if h > 0:
-            return f"{h} jam {m} menit {s} detik"
-        elif m > 0:
-            return f"{m} menit {s} detik"
-        else:
-            return f"{s} detik"
+        if h > 0: return f"{h} jam {m} menit {s} detik"
+        elif m > 0: return f"{m} menit {s} detik"
+        else: return f"{s} detik"
 
     # --- MODE TUNGGAL ---
     def mulai_single(self):
         keyword = self.entry_keyword.get().strip()
         sumber = self.option_sumber.get()
+        lokasi = self.combo_lokasi.get() # Ambil lokasi dinamis
 
         if not keyword:
             self.tulis_log("⚠️ Error: Kata kunci tidak boleh kosong!")
             return
 
         self.stop_flag = False
-        self.set_status(f"🟡 Status: Mengekstrak {sumber}...", "#B8860B") 
+        self.set_status(f"🟡 Mengekstrak {sumber} di {lokasi}...", "#B8860B") 
         self.progress_bar.set(0)
         self.label_pct.configure(text="0%")
         
@@ -261,34 +331,32 @@ class MultiScraperApp(ctk.CTk):
         self.toggle_ui_state(is_running=True)
 
         self.tulis_log("-" * 50)
-        self.tulis_log(f"🚀 MODE SINGLE: '{keyword}' via {sumber}")
+        self.tulis_log(f"🚀 MODE SINGLE: '{keyword}' via {sumber} (Lokasi: {lokasi})")
         
-        thread = threading.Thread(target=self.proses_single_background, args=(keyword, sumber))
+        thread = threading.Thread(target=self.proses_single_background, args=(keyword, sumber, lokasi))
         thread.daemon = True
         thread.start()
 
-    def proses_single_background(self, keyword, sumber):
+    def proses_single_background(self, keyword, sumber, lokasi):
         start_time = time.time() 
         try:
-            if sumber == "Blibli": scrape_blibli(keyword, callback=self.tulis_log, stop_check=self.check_apakah_stop)
-            elif sumber == "Tokopedia": scrape_tokopedia(keyword, callback=self.tulis_log, stop_check=self.check_apakah_stop)
-            elif sumber == "Shopee": scrape_shopee(keyword, callback=self.tulis_log, stop_check=self.check_apakah_stop)
+            # PENTING: Semua scraper menerima parameter tambahan: `lokasi`
+            if sumber == "Blibli": scrape_blibli(keyword, lokasi=lokasi, callback=self.tulis_log, stop_check=self.check_apakah_stop)
+            elif sumber == "Tokopedia": scrape_tokopedia(keyword, lokasi=lokasi, callback=self.tulis_log, stop_check=self.check_apakah_stop)
+            elif sumber == "Shopee": scrape_shopee(keyword, lokasi=lokasi, callback=self.tulis_log, stop_check=self.check_apakah_stop)
             elif sumber == "OLX":
                 from olx_scraper import scrape_olx 
-                scrape_olx(keyword, callback=self.tulis_log, stop_check=self.check_apakah_stop)
+                scrape_olx(keyword, lokasi=lokasi, callback=self.tulis_log, stop_check=self.check_apakah_stop)
             
             elapsed_time = time.time() - start_time 
-            waktu_str = self.format_waktu(elapsed_time)
-
             if self.stop_flag:
                 self.set_status("🔴 Status: Dibatalkan.", "red")
-                self.tulis_log(f"\n🛑 PROSES DIBATALKAN OLEH PENGGUNA (Waktu berjalan: {waktu_str}).")
+                self.tulis_log(f"\n🛑 PROSES DIBATALKAN OLEH PENGGUNA.")
             else:
                 self.set_status("🟢 Status: Selesai!", "green")
                 self.after(0, lambda: self.progress_bar.set(1.0))
                 self.after(0, lambda: self.label_pct.configure(text="100%"))
-                self.tulis_log(f"\n✅ PROSES SELESAI DALAM WAKTU {waktu_str}!")
-                
+                self.tulis_log(f"\n✅ PROSES SELESAI DALAM WAKTU {self.format_waktu(elapsed_time)}!")
         except Exception as e:
             self.set_status("🔴 Status: Error", "red")
             self.tulis_log(f"\n❌ FATAL ERROR: {e}")
@@ -297,34 +365,24 @@ class MultiScraperApp(ctk.CTk):
 
     # --- MODE BULK (EXCEL) ---
     def mulai_bulk(self):
-        if not self.bulk_filepath:
-            self.tulis_log("⚠️ Error: Silakan pilih file Excel terlebih dahulu!")
+        if not self.saved_keywords:
+            self.tulis_log("⚠️ Error: Silakan pilih file Excel berisi keyword terlebih dahulu!")
             return
 
-        try:
-            # PERBAIKAN: Baca Excel tanpa header (baris pertama langsung dianggap data)
-            df = pd.read_excel(self.bulk_filepath, header=None)
-            
-            # Mengambil semua baris di kolom pertama (index 0)
-            raw_keywords = df[0].dropna().astype(str).tolist()
-            
-            # Membersihkan keyword (jaga-jaga user ngetik spasi atau masih naruh tulisan "Keyword")
-            keywords = []
-            for kw in raw_keywords:
-                cleaned = kw.strip()
-                if cleaned and cleaned.lower() != "keyword":
-                    keywords.append(cleaned)
-                    
-        except Exception as e:
-            self.tulis_log(f"⚠️ Error membaca Excel: {e}")
+        # Cek platform apa saja yang dicentang
+        sumber_list = []
+        if self.chk_tokped_var.get(): sumber_list.append("Tokopedia")
+        if self.chk_blibli_var.get(): sumber_list.append("Blibli")
+        if self.chk_olx_var.get(): sumber_list.append("OLX")
+
+        if len(sumber_list) == 0:
+            self.tulis_log("⚠️ Error: Silakan centang minimal satu platform scraping (Tokopedia/Blibli/OLX)!")
             return
 
-        if not keywords:
-            self.tulis_log("⚠️ Error: File Excel kosong atau tidak ada keyword valid.")
-            return
+        lokasi = self.combo_lokasi.get() # Ambil lokasi dari dropdown
 
         self.stop_flag = False
-        self.set_status(f"🟡 Status: Memulai Bulk Scraping ({len(keywords)} kata kunci)...", "#8B008B") 
+        self.set_status(f"🟡 Bulk Scraping ({len(self.saved_keywords)} kata kunci) di {lokasi}...", "#8B008B") 
         self.progress_bar.set(0)
         self.label_pct.configure(text="0%")
         
@@ -335,18 +393,18 @@ class MultiScraperApp(ctk.CTk):
 
         self.toggle_ui_state(is_running=True)
 
-        thread = threading.Thread(target=self.proses_bulk_background, args=(keywords,))
+        thread = threading.Thread(target=self.proses_bulk_background, args=(self.saved_keywords, sumber_list, lokasi))
         thread.daemon = True
         thread.start()
 
-    def proses_bulk_background(self, keywords):
+    def proses_bulk_background(self, keywords, sumber_list, lokasi):
         start_time_total = time.time() 
-        sumber_list = ["Tokopedia", "Blibli", "OLX"]
         total_tasks = len(keywords) * len(sumber_list)
         current_task = 0
 
         self.tulis_log("=" * 60)
-        self.tulis_log(f"🚀 MEMULAI MODE BULK ({len(keywords)} Keyword, 3 Platform)")
+        self.tulis_log(f"🚀 MEMULAI MODE BULK ({len(keywords)} Keyword, {len(sumber_list)} Platform)")
+        self.tulis_log(f"📍 Target Lokasi: {lokasi}")
         self.tulis_log("=" * 60)
 
         for kw in keywords:
@@ -362,27 +420,23 @@ class MultiScraperApp(ctk.CTk):
 
                 start_time_task = time.time() 
                 try:
-                    if sumber == "Tokopedia":
-                        scrape_tokopedia(kw, callback=self.tulis_log, stop_check=self.check_apakah_stop)
-                    elif sumber == "Blibli":
-                        scrape_blibli(kw, callback=self.tulis_log, stop_check=self.check_apakah_stop)
+                    # Lewatkan parameter `lokasi` ke scraper 
+                    if sumber == "Tokopedia": scrape_tokopedia(kw, lokasi=lokasi, callback=self.tulis_log, stop_check=self.check_apakah_stop)
+                    elif sumber == "Blibli": scrape_blibli(kw, lokasi=lokasi, callback=self.tulis_log, stop_check=self.check_apakah_stop)
                     elif sumber == "OLX":
                         from olx_scraper import scrape_olx 
-                        scrape_olx(kw, callback=self.tulis_log, stop_check=self.check_apakah_stop)
+                        scrape_olx(kw, lokasi=lokasi, callback=self.tulis_log, stop_check=self.check_apakah_stop)
                 except Exception as e:
                     self.tulis_log(f"❌ Error pada '{kw}' via {sumber}: {e}")
                 
-                elapsed_task = time.time() - start_time_task
-                self.tulis_log(f"⏱️ Task selesai dalam: {self.format_waktu(elapsed_task)}")
+                self.tulis_log(f"⏱️ Task selesai dalam: {self.format_waktu(time.time() - start_time_task)}")
                     
             if self.stop_flag: break
 
-        elapsed_total = time.time() - start_time_total 
-        waktu_str = self.format_waktu(elapsed_total)
-
+        waktu_str = self.format_waktu(time.time() - start_time_total)
         if self.stop_flag:
             self.set_status("🔴 Status: Bulk Dibatalkan.", "red")
-            self.tulis_log(f"\n🛑 PROSES BULK DIBATALKAN. File sebelumnya aman (Waktu berjalan: {waktu_str}).")
+            self.tulis_log(f"\n🛑 PROSES BULK DIBATALKAN. File sebelumnya aman.")
         else:
             self.set_status("🟢 Status: Bulk Selesai Total!", "green")
             self.after(0, lambda: self.progress_bar.set(1.0))
