@@ -3,7 +3,7 @@ Update 2.5 :
 2.  Filter lokasi scrapping
 3.  Fixing Bug maps_place_name excel
 4.  Bar progress persentase scrapping
-5.  spesifik 'yogyakarta' di pencarian maps. contoh {nama toko} + 'yogyakarta'. untuk fokus pencarian toko di Yogyakarta bukan cabang lain provinsi
+5.  spesifik di filter daerah (contoh bantul) di pencarian maps. contoh {nama toko} + {nama daerah yang dipilih}. untuk fokus pencarian toko di daerah yang dipilih bukan cabang lain beda provinsi
 6.  Kasus unik Blibli ( Sudah Diperbaiki ), jika barang yang dicari tidak ada di bantul. sebelum diperbaiki, filter lokasi nya tidak ada pilihan 'bantul', tapi aplikasi akan tetap scrapping. Contoh: coba cari 'nitendo', 'dvr' atau 'pabx' di Blibli.com dan ketik filter lokasi 'Bantul', maka tidak ada pilihan 'Bantul' karena tidak ada penjual (toko) disitu. jadi aplikasi dibuat langsung stop tidak melanjutkan scrapping (karena tidak ada toko di Bantul)
 7.  fixing minor bug
 8.  tampilan waktu lama scrapping
