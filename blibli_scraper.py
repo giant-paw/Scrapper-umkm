@@ -7,7 +7,6 @@ from difflib import SequenceMatcher
 import pandas as pd
 from playwright.sync_api import sync_playwright
 
-# ================= CONFIG & UTILITY =================
 OUTPUT_PREFIX = "blibli"
 
 def sanitize_filename(text):
@@ -127,7 +126,7 @@ class BlibliGeoScraper:
                     lihat_semua.click(force=True)
                     self.log("Klik tombol 'Lihat semua' lokasi...")
                     
-                    modal = page.locator("div[class*='filter-desktop-modal'], div[class*='blu-modal']").first
+                    modal = page.locator("div[class*='filter-desktop-modal'], div[class*='blu-modal']").filter(has=page.locator("input[type='text']")).first
                     modal.wait_for(state="visible", timeout=8000)
                     
                     search_input = modal.locator("input[type='text']").first
@@ -173,7 +172,7 @@ class BlibliGeoScraper:
         unique_shops = set()
         
         browser = p.chromium.launch(
-            headless=False, 
+            headless=True, 
             channel="msedge", 
             args=["--start-maximized", "--disable-blink-features=AutomationControlled"]
         )
@@ -301,7 +300,7 @@ class BlibliGeoScraper:
         total_shops = len(unique_shops)
         self.log(f"\nTotal toko unik: {total_shops}. Memulai pengayaan Maps...")
         
-        browser = p.chromium.launch(headless=False, channel="msedge", args=["--start-maximized"])
+        browser = p.chromium.launch(headless=True, channel="msedge", args=["--start-maximized"])
         context = browser.new_context(no_viewport=True)
         page = context.new_page()
         

@@ -120,7 +120,7 @@ class TokopediaGeoScraper:
         unique_shops = set()
         
         browser = p.chromium.launch(
-            headless=False, 
+            headless=True, 
             channel="msedge", 
             args=["--start-maximized", "--disable-blink-features=AutomationControlled"]
         )
@@ -236,7 +236,7 @@ class TokopediaGeoScraper:
         total_shops = len(unique_shops)
         self.log(f"\nTotal toko unik: {total_shops}. Memulai pengayaan Maps...")
         
-        browser = p.chromium.launch(headless=False, channel="msedge", args=["--start-maximized"])
+        browser = p.chromium.launch(headless=True, channel="msedge", args=["--start-maximized"])
         context = browser.new_context(no_viewport=True)
         page = context.new_page()
         

@@ -9,7 +9,6 @@ import re
 import pandas as pd
 from tkinter import filedialog
 
-# Sesuaikan dengan nama file scraper Anda
 from blibli_scraper import scrape_blibli
 from tokopedia_scraper import scrape_tokopedia 
 from shopee_scraper import scrape_shopee 

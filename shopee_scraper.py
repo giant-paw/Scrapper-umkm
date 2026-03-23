@@ -119,7 +119,7 @@ class ShopeeGeoScraper:
     def extract_shopee_shops(self, keyword: str) -> pd.DataFrame:
         shops = []
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=False, channel="msedge")
+            browser = p.chromium.launch(headless=True, channel="msedge")
             context = browser.new_context(
                 viewport={"width": 1440, "height": 900},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
