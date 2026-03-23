@@ -120,7 +120,7 @@ class TokopediaGeoScraper:
         unique_shops = set()
         
         browser = p.chromium.launch(
-            headless=True, 
+            headless=False, 
             channel="msedge", 
             args=["--start-maximized", "--disable-blink-features=AutomationControlled"]
         )
